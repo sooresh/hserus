@@ -1,184 +1,366 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Hserus</title>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      padding: 20px;
-      background-color: #f5f5f5;
-    }
-    h1 {
-      text-align: center;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 20px;
-    }
-    th, td {
-      border: 1px solid #ccc;
-      padding: 8px;
-      text-align: center;
-    }
-    th {
-      background-color: #333;
-      color: white;
-    }
-    .green {
-      background-color: #c8f7c5;
-    }
-    .red {
-      background-color: #f7c5c5;
-    }
-    select {
-      padding: 8px;
-      margin-top: 10px;
-    }
+    body{font-family:Inter,Arial,Helvetica,sans-serif;margin:12px;background:#0f1720;color:#e6eef6}
+    header{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+    h1{font-size:18px;margin:0}
+    .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    select,input,button{padding:6px;border-radius:6px;border:1px solid #294151;background:#071421;color:#e6eef6}
+    button{cursor:pointer}
+    #status{font-size:13px;color:#9fb6c7}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:10px;margin-top:12px}
+    .card{background:#071827;border:1px solid #16323b;padding:10px;border-radius:8px}
+    .row{display:flex;justify-content:space-between;gap:8px;align-items:center}
+    .tag{font-size:12px;padding:4px 6px;border-radius:6px;background:#0b2b2f;color:#9fe6d8}
+    .redtag{background:#3b1f22;color:#ffd7d7}
+    table{width:100%;border-collapse:collapse;margin-top:12px}
+    th,td{padding:8px;border-bottom:1px solid #122c34;text-align:left;font-size:13px}
+    th{color:#b8d6df}
+    .small{font-size:12px;color:#9fb6c7}
+    @media(max-width:520px){ .controls{flex-direction:column;align-items:stretch} }
   </style>
 </head>
 <body>
-  <h1>Hserus</h1>
-  <label for="filter">Sort by:</label>
-  <select id="filter" onchange="renderTable()">
-    <option value="rsi">RSI</option>
-    <option value="macdDiff">MACD Diff</option>
-    <option value="symbol">Name</option>
-  </select>
-  <table id="resultsTable">
-    <thead>
-      <tr>
-        <th>Symbol</th>
-        <th>RSI(6)</th>
-        <th>MACD Diff</th>
-        <th>Signal</th>
-        <th>MACD Crossover (Last 4 Candles)</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
-  <script>
-    const topExcluded = ['BTC','ETH','SOL','BNB','XRP','ADA','DOGE','TON','AVAX','DOT','TRX','SHIB','LINK','NEAR','MATIC','UNI','LTC','ICP','LEO','BCH'];
-    let allSymbols = [];
-    let finalData = [];
+  <header>
+    <div>
+      <h1>Hserus</h1>
+      <div class="small">Filters applied: Volume spike &amp; RSI(6) condition (Wilder)</div>
+    </div>
 
-    async function fetchSymbols() {
-      const res = await fetch('https://fapi.binance.com/fapi/v1/exchangeInfo');
-      const data = await res.json();
-      allSymbols = data.symbols.filter(s => s.contractType === 'PERPETUAL' && s.symbol.endsWith('USDT') && !topExcluded.includes(s.baseAsset));
-    }
+    <div class="controls">
+      <label class="small">Sort:
+        <select id="sortSelect">
+          <option value="none">None</option>
+          <option value="rsi_asc">RSI ↑</option>
+          <option value="rsi_desc">RSI ↓</option>
+          <option value="vol_asc">Vol% ↑</option>
+          <option value="vol_desc">Vol% ↓</option>
+        </select>
+      </label>
 
-    async function fetch24hrStats() {
-      const res = await fetch('https://fapi.binance.com/fapi/v1/ticker/24hr');
-      const stats = await res.json();
-      const symbolChanges = stats.filter(s => allSymbols.find(a => a.symbol === s.symbol));
-      return symbolChanges.sort((a, b) => Math.abs(b.priceChangePercent) - Math.abs(a.priceChangePercent)).slice(0, 200);
-    }
+      <button id="refreshBtn">Refresh</button>
+      <div id="status">Idle</div>
+    </div>
+  </header>
 
-    function calculateMACD(values, fast = 12, slow = 26, signal = 9) {
-      const ema = (data, length) => {
-        const k = 2 / (length + 1);
-        let emaArray = [data[0]];
-        for (let i = 1; i < data.length; i++) {
-          emaArray.push(data[i] * k + emaArray[i - 1] * (1 - k));
-        }
-        return emaArray;
-      };
-      const emaFast = ema(values, fast);
-      const emaSlow = ema(values, slow);
-      const macdLine = emaFast.map((val, i) => val - emaSlow[i]);
-      const signalLine = ema(macdLine.slice(slow), signal);
-      const macdHist = macdLine.slice(slow + signal - 1).map((m, i) => m - signalLine[i]);
-      return { macdLine: macdLine.slice(-5), signalLine: signalLine.slice(-5), macdHist };
-    }
+  <main>
+    <table aria-live="polite" id="resultsTable">
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>RSI(6)</th>
+          <th>Volume % Change</th>
+          <th>MACD Crossover (last 4)</th>
+          <th>MACD Distance Trend</th>
+        </tr>
+      </thead>
+      <tbody id="resultsBody">
+        <tr><td colspan="5" class="small">Click <strong>Refresh</strong> to run the scan. Be patient — scanning up to 200 symbols may take 10–30s.</td></tr>
+      </tbody>
+    </table>
+  </main>
 
-    function checkMACDCrossover(macd, signal) {
-      for (let i = 1; i < macd.length; i++) {
-        if ((macd[i - 1] < signal[i - 1] && macd[i] > signal[i]) || (macd[i - 1] > signal[i - 1] && macd[i] < signal[i])) {
-          return true;
-        }
+<script>
+/*
+  Single-file client-side screener for GitHub Pages
+  - Uses Binance Futures (fapi) endpoints
+  - limit = 40 candles (1h)
+  - Filters: 1) current volume > max(prev 3), 2) RSI6 condition (Wilder)
+  - Displays RSI(6), volume% change, MACD crossover (last 4), MACD distance trend
+  - Sort dropdown for RSI and Volume % Change
+*/
+
+const LIMIT = 40;                 // candles per symbol
+const INTERVAL = '1h';
+const MAX_SYMBOLS = 200;          // top N volatile/per-volume symbols to scan
+const EXCLUDE_TOP20 = [
+  "BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT","XRPUSDT","ADAUSDT","DOGEUSDT","TONUSDT","AVAXUSDT",
+  "DOTUSDT","TRXUSDT","SHIBUSDT","LINKUSDT","NEARUSDT","MATICUSDT","LTCUSDT","UNIUSDT","BCHUSDT",
+  "ICPUSDT","LEOUSDT"
+];
+
+const statusEl = document.getElementById('status');
+const resultsBody = document.getElementById('resultsBody');
+const sortSelect = document.getElementById('sortSelect');
+const refreshBtn = document.getElementById('refreshBtn');
+
+refreshBtn.addEventListener('click', runScan);
+sortSelect.addEventListener('change', renderResults);
+
+let currentResults = [];
+
+// Utility sleep to throttle requests and avoid browser/network bursts
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// Fetch exchangeInfo to get contractType/perpetual symbol list (safer than assumptions)
+async function fetchPerpetualSymbols() {
+  const url = 'https://fapi.binance.com/fapi/v1/exchangeInfo';
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('exchangeInfo fetch failed');
+  const data = await res.json();
+  // Get symbols that are PERPETUAL and end with USDT and not in exclude list
+  return data.symbols
+    .filter(s => s.contractType === 'PERPETUAL' && s.symbol.endsWith('USDT') && !EXCLUDE_TOP20.includes(s.symbol))
+    .map(s => s.symbol);
+}
+
+// Fetch top N symbols by recent 24h activity/volatility — using ticker/24hr and matching perpetuals
+async function fetchTopSymbols(limit = MAX_SYMBOLS) {
+  const tickUrl = 'https://fapi.binance.com/fapi/v1/ticker/24hr';
+  const [tickRes, perpSymbols] = await Promise.all([fetch(tickUrl), fetchPerpetualSymbols()]);
+  if (!tickRes.ok) throw new Error('24hr ticker fetch failed');
+  const tickData = await tickRes.json();
+  // Filter to perpetual USDT symbols and sort by absolute price change percent (volatility) or by volume
+  const filtered = tickData
+    .filter(t => t.symbol.endsWith('USDT') && perpSymbols.includes(t.symbol))
+    .sort((a,b) => Math.abs(parseFloat(b.priceChangePercent || 0)) - Math.abs(parseFloat(a.priceChangePercent || 0)))
+    .slice(0, limit)
+    .map(t => t.symbol);
+  return filtered;
+}
+
+// Fetch klines (limit candles)
+async function fetchKlines(symbol) {
+  const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${INTERVAL}&limit=${LIMIT}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`klines failed for ${symbol}`);
+  const raw = await res.json();
+  return raw.map(r => ({
+    openTime: r[0],
+    open: +r[1],
+    high: +r[2],
+    low: +r[3],
+    close: +r[4],
+    volume: +r[5]
+  }));
+}
+
+/* Wilder RSI (period n) implementation in JS:
+   - Use Wilder smoothing (first avg = simple avg of first n diffs,
+     then smoothed average = (prev*(n-1) + current)/n)
+   - Returns array of RSI values (same length as input), with nulls for initial indices
+*/
+function calculateRSI_Wilder(closes, period = 6) {
+  const deltas = new Array(closes.length).fill(0);
+  for (let i = 1; i < closes.length; i++) deltas[i] = closes[i] - closes[i-1];
+
+  const gains = new Array(closes.length).fill(0);
+  const losses = new Array(closes.length).fill(0);
+  for (let i = 1; i < closes.length; i++) {
+    if (deltas[i] > 0) { gains[i] = deltas[i]; losses[i] = 0; }
+    else { gains[i] = 0; losses[i] = -deltas[i]; }
+  }
+
+  const avgGain = new Array(closes.length).fill(null);
+  const avgLoss = new Array(closes.length).fill(null);
+  // first average at index = period
+  let sumGain = 0, sumLoss = 0;
+  for (let i = 1; i <= period; i++) { sumGain += gains[i]; sumLoss += losses[i]; }
+  avgGain[period] = sumGain / period;
+  avgLoss[period] = sumLoss / period;
+
+  for (let i = period+1; i < closes.length; i++) {
+    avgGain[i] = (avgGain[i-1] * (period - 1) + gains[i]) / period;
+    avgLoss[i] = (avgLoss[i-1] * (period - 1) + losses[i]) / period;
+  }
+
+  const rsi = new Array(closes.length).fill(null);
+  for (let i = 0; i < closes.length; i++) {
+    if (avgGain[i] == null || avgLoss[i] == null) { rsi[i] = null; continue; }
+    if (avgLoss[i] === 0) { rsi[i] = 100; continue; }
+    const rs = avgGain[i] / avgLoss[i];
+    rsi[i] = 100 - (100 / (1 + rs));
+  }
+  return rsi;
+}
+
+// Simple EMA function (returns array same length as input, first value = first close)
+function emaArray(values, period) {
+  const k = 2 / (period + 1);
+  const out = [];
+  out[0] = values[0];
+  for (let i = 1; i < values.length; i++) {
+    out[i] = values[i] * k + out[i-1] * (1 - k);
+  }
+  return out;
+}
+
+// MACD & signal arrays
+function calculateMACD(closes, short=12, long=26, signal=9) {
+  const emaShort = emaArray(closes, short);
+  const emaLong = emaArray(closes, long);
+  // align lengths: both arrays equal to closes.length
+  const macdLine = closes.map((_, i) => (emaShort[i] !== undefined && emaLong[i] !== undefined) ? emaShort[i] - emaLong[i] : 0);
+  const signalLine = emaArray(macdLine, signal);
+  // macdDiff = macdLine - signalLine
+  const macdDiff = macdLine.map((v,i) => v - signalLine[i]);
+  return { macdLine, signalLine, macdDiff };
+}
+
+// Check MACD crossover within last 4 candles (true if sign change in macdDiff within last 4)
+function macdCrossoverLastN(macdDiff, n=4) {
+  // Need at least n+1 values to detect a crossing
+  if (macdDiff.length < n+1) return false;
+  const slice = macdDiff.slice(- (n+1)); // e.g. last 5 values if n=4
+  // check any consecutive sign flip crossing zero
+  for (let i = 1; i < slice.length; i++) {
+    if (slice[i-1] === 0) continue;
+    if (slice[i] === 0) continue;
+    if ((slice[i-1] < 0 && slice[i] > 0) || (slice[i-1] > 0 && slice[i] < 0)) return true;
+  }
+  return false;
+}
+
+// Determine MACD distance trend: compare |diff_now| vs |diff_prev|
+function macdDistanceTrend(macdDiff) {
+  if (macdDiff.length < 2) return 'N/A';
+  const now = Math.abs(macdDiff[macdDiff.length - 1]);
+  const prev = Math.abs(macdDiff[macdDiff.length - 2]);
+  return now < prev ? 'Reducing' : 'Increasing';
+}
+
+// Volume spike condition: latest > max(prev 3)
+function isVolumeSpike(volumes) {
+  if (volumes.length < 4) return false;
+  const latest = volumes[volumes.length - 1];
+  const prev3 = volumes.slice(volumes.length - 4, volumes.length - 1);
+  const maxPrev3 = Math.max(...prev3);
+  return latest > maxPrev3;
+}
+
+// Volume % change vs average of prev 3
+function volumePercentChange(volumes) {
+  const latest = volumes[volumes.length - 1];
+  const prev3 = volumes.slice(volumes.length - 4, volumes.length - 1);
+  const avg = (prev3[0] + prev3[1] + prev3[2]) / 3;
+  if (avg === 0) return 0;
+  return ((latest - avg) / avg) * 100;
+}
+
+// Main scan
+async function runScan() {
+  try {
+    currentResults = [];
+    resultsBody.innerHTML = '';
+    statusEl.textContent = 'Fetching top symbols...';
+    const symbols = await fetchTopSymbols(MAX_SYMBOLS);
+
+    statusEl.textContent = `Scanning ${symbols.length} symbols (this can take some seconds)...`;
+    // sequential scanning with small delay to be polite / avoid bursts
+    let scanned = 0;
+    for (const sym of symbols) {
+      try {
+        const klines = await fetchKlines(sym);
+        scanned++;
+        statusEl.textContent = `Scanning ${scanned}/${symbols.length}: ${sym}`;
+
+        const closes = klines.map(k => k.close);
+        const volumes = klines.map(k => k.volume);
+        if (closes.length < 10) { await sleep(80); continue; }
+
+        // Condition 1: volume spike
+        if (!isVolumeSpike(volumes)) { await sleep(80); continue; }
+
+        // RSI(6) using Wilder
+        const rsiArr = calculateRSI_Wilder(closes, 6);
+        const rsiNow = rsiArr[rsiArr.length - 1];
+        if (rsiNow == null) { await sleep(80); continue; }
+
+        // Candle color
+        const last = klines[klines.length - 1];
+        const isGreen = last.close > last.open;
+        const isRed = last.close < last.open;
+
+        // Condition 2: RSI condition
+        const rsiCondition = (isRed && rsiNow < 35) || (isGreen && rsiNow > 65);
+        if (!rsiCondition) { await sleep(80); continue; }
+
+        // MACD info (informational only)
+        const { macdLine, signalLine, macdDiff } = calculateMACD(closes);
+        const macdCrossover = macdCrossoverLastN(macdDiff, 4);
+        const macdTrend = macdDistanceTrend(macdDiff);
+
+        // Volume percent change
+        const volPct = volumePercentChange(volumes);
+
+        // Add to currentResults
+        currentResults.push({
+          symbol: sym,
+          rsi: Number(rsiNow.toFixed(2)),
+          volPct: Number(volPct.toFixed(2)),
+          macdCrossover: macdCrossover ? 'Yes' : 'No',
+          macdTrend
+        });
+
+        // short sleep between requests to keep network smooth
+        await sleep(90);
+      } catch (errSym) {
+        // console.warn('symbol error', sym, errSym);
+        await sleep(90);
+        continue;
       }
-      return false;
     }
 
-    async function fetchKlines(symbol) {
-      const res = await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=1h&limit=100`);
-      const data = await res.json();
-      return data;
-    }
+    statusEl.textContent = `Scan complete — ${currentResults.length} matches.`;
+    renderResults();
+  } catch (err) {
+    console.error(err);
+    statusEl.textContent = 'Error: ' + (err.message || err);
+  }
+}
 
-    function calculateRSI(closes, period = 6) {
-      let gains = 0, losses = 0;
-      for (let i = 1; i <= period; i++) {
-        const diff = closes[i] - closes[i - 1];
-        if (diff >= 0) gains += diff;
-        else losses -= diff;
-      }
-      const avgGain = gains / period;
-      const avgLoss = losses / period;
-      const rs = avgGain / avgLoss;
-      return 100 - (100 / (1 + rs));
-    }
+// Render results with sorting
+function renderResults() {
+  const opt = sortSelect.value;
+  let list = [...currentResults];
+  if (opt === 'rsi_asc') list.sort((a,b) => a.rsi - b.rsi);
+  else if (opt === 'rsi_desc') list.sort((a,b) => b.rsi - a.rsi);
+  else if (opt === 'vol_asc') list.sort((a,b) => a.volPct - b.volPct);
+  else if (opt === 'vol_desc') list.sort((a,b) => b.volPct - a.volPct);
 
-    async function processSymbol(symbol) {
-      const candles = await fetchKlines(symbol);
-      const volumes = candles.map(c => parseFloat(c[5]));
-      const closes = candles.map(c => parseFloat(c[4]));
-      const open = parseFloat(candles.at(-1)[1]);
-      const close = parseFloat(candles.at(-1)[4]);
-      const volume = parseFloat(candles.at(-1)[5]);
-      const maxVol3 = Math.max(...volumes.slice(-4, -1));
-      const isVolumeBreakout = volume > maxVol3;
-      const isGreen = close > open;
-      const rsi = calculateRSI(closes);
-      const macdData = calculateMACD(closes);
-      const macdLine = macdData.macdLine.at(-1);
-      const signalLine = macdData.signalLine.at(-1);
-      const macdDiff = macdLine - signalLine;
-      const crossover = checkMACDCrossover(macdData.macdLine, macdData.signalLine);
+  if (list.length === 0) {
+    resultsBody.innerHTML = '<tr><td colspan="5" class="small">No matches found. Try refresh after some time.</td></tr>';
+    return;
+  }
 
-      if (isVolumeBreakout) {
-        if ((isGreen && rsi > 65) || (!isGreen && rsi < 35)) {
-          finalData.push({ symbol, rsi: rsi.toFixed(2), macdDiff: macdDiff.toFixed(4), signal: isGreen ? 'Buy' : 'Sell', crossover });
-        }
-      }
-    }
+  resultsBody.innerHTML = '';
+  for (const row of list) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><strong>${row.symbol}</strong></td>
+      <td>${row.rsi.toFixed(2)}</td>
+      <td>${row.volPct.toFixed(2)}%</td>
+      <td>${row.macdCrossover}</td>
+      <td>${row.macdTrend}</td>
+    `;
+    resultsBody.appendChild(tr);
+  }
+}
 
-    async function main() {
-      await fetchSymbols();
-      const topVolatile = await fetch24hrStats();
-      for (const s of topVolatile) {
-        await processSymbol(s.symbol);
-      }
-      renderTable();
-    }
+// init
+async function init() {
+  refreshBtn.disabled = false;
+  statusEl.textContent = 'Ready — click Refresh to run scan';
+}
 
-    function renderTable() {
-      const filter = document.getElementById('filter').value;
-      const sorted = [...finalData].sort((a, b) => {
-        if (filter === 'symbol') return a.symbol.localeCompare(b.symbol);
-        else return b[filter] - a[filter];
-      });
-      const tbody = document.querySelector('#resultsTable tbody');
-      tbody.innerHTML = '';
-      sorted.forEach(row => {
-        const tr = document.createElement('tr');
-        tr.className = row.signal === 'Buy' ? 'green' : 'red';
-        tr.innerHTML = `
-          <td>${row.symbol}</td>
-          <td>${row.rsi}</td>
-          <td>${row.macdDiff}</td>
-          <td>${row.signal}</td>
-          <td>${row.crossover ? 'Yes' : 'No'}</td>
-        `;
-        tbody.appendChild(tr);
-      });
-    }
+// wire up
+init();
 
-    main();
-  </script>
+// allow manual refresh with click
+async function handleRefresh() {
+  refreshBtn.disabled = true;
+  await runScan();
+  refreshBtn.disabled = false;
+}
+refreshBtn.addEventListener('click', handleRefresh);
+
+// auto-run once on page load (comment out if you prefer manual)
+handleRefresh();
+
+</script>
 </body>
 </html>
-
