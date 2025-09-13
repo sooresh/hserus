@@ -1,129 +1,197 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>hserus</title>
-  <style>
-    body { font-family: Arial, sans-serif; background: #f4f4f4; padding: 20px; }
-    h1 { text-align: center; }
-    table { border-collapse: collapse; width: 100%; margin-top: 20px; background: #fff; }
-    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
-    th { background: #333; color: #fff; }
-    tr:nth-child(even) { background: #f9f9f9; }
-    button { margin: 10px auto; display: block; padding: 10px 20px; font-size: 16px; }
-    #filterBox { margin: 20px auto; display: block; padding: 8px; width: 200px; }
-  </style>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>hserus</title>
+<style>
+:root{--bg:#08131d;--card:#0f212e;--muted:#8fa2b7;--accent:#7be3c7;--danger:#ff9a9a}
+body{margin:0;font-family:Arial,Helvetica,sans-serif;background:linear-gradient(#020c14,#061520);color:#e6f3f6;padding:14px}
+header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px}
+h1{margin:0;font-size:18px}
+.controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+select,button{padding:6px 10px;border-radius:6px;border:1px solid #12333d;background:var(--card);color:inherit}
+button{cursor:pointer}
+#status{font-size:13px;color:var(--muted)}
+table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}
+th,td{text-align:left;padding:8px;border-bottom:1px solid rgba(255,255,255,0.06)}
+th{color:var(--muted);font-size:12px;cursor:pointer}
+tr.match{background:rgba(11,36,48,0.4)}
+.green{color:#7be3c7}
+.red{color:#ff9a9a}
+.small{font-size:12px;color:var(--muted)}
+</style>
 </head>
 <body>
-  <h1>hserus</h1>
-  <input type="text" id="filterBox" placeholder="Filter by symbol...">
-  <button onclick="refreshData()">Refresh</button>
-  <table id="dataTable">
+<header>
+  <div>
+    <h1>hserus</h1>
+    <div class="small">hserus</div>
+  </div>
+  <div class="controls">
+    <label class="small">Sort:
+      <select id="sortSelect">
+        <option value="closePct_desc">Close % ↓</option>
+        <option value="closePct_asc">Close % ↑</option>
+        <option value="currVolPct_desc">Curr Vol % ↓</option>
+        <option value="currVolPct_asc">Curr Vol % ↑</option>
+        <option value="prevVolPct_desc">Prev Vol % ↓</option>
+        <option value="prevVolPct_asc">Prev Vol % ↑</option>
+        <option value="symbol_asc">Symbol A→Z</option>
+        <option value="symbol_desc">Symbol Z→A</option>
+      </select>
+    </label>
+    <button id="refreshBtn">Refresh</button>
+    <div id="status">Idle</div>
+  </div>
+</header>
+
+<main>
+  <table>
     <thead>
       <tr>
         <th>Symbol</th>
-        <th>Prev Buy/Sell</th>
-        <th>Curr Buy/Sell</th>
-        <th>% Chg Buy/Sell</th>
-        <th>% Chg Buy Vol</th>
-        <th>% Chg Sell Vol</th>
+        <th>Close %</th>
+        <th>Curr Vol %</th>
+        <th>Prev Vol %</th>
       </tr>
     </thead>
-    <tbody></tbody>
+    <tbody id="resultsBody">
+      <tr><td colspan="4" class="small">Click Refresh to start scanning...</td></tr>
+    </tbody>
   </table>
+</main>
 
-  <script>
-    let prevData = {}; // store previous cumulative snapshot
-    let prevInterval = {}; // store previous interval values
+<script>
+const LIMIT = 3;  // need last 3 candles
+const INTERVAL = '15m';
+const MAX_SYMBOLS = 200;
+const EXCLUDE = ["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT","XRPUSDT","ADAUSDT","DOGEUSDT","TONUSDT","AVAXUSDT","DOTUSDT","TRXUSDT","SHIBUSDT","LINKUSDT","NEARUSDT","MATICUSDT","LTCUSDT","UNIUSDT","BCHUSDT","ICPUSDT","LEOUSDT"];
+const PAUSE_MS = 120;
 
-    const excludeSymbols = ["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT","XRPUSDT","DOGEUSDT","ADAUSDT","TRXUSDT","TONUSDT","SHIBUSDT",
-                            "AVAXUSDT","DOTUSDT","LINKUSDT","MATICUSDT","LTCUSDT","NEARUSDT","BCHUSDT","UNIUSDT","APTUSDT","ETCUSDT"];
+const resultsBody = document.getElementById('resultsBody');
+const statusEl = document.getElementById('status');
+const sortSelect = document.getElementById('sortSelect');
+const refreshBtn = document.getElementById('refreshBtn');
 
-    async function refreshData() {
-      try {
-        // Fetch Spot 24hr stats
-        const spotRes = await fetch("https://api.binance.com/api/v3/ticker/24hr");
-        const spotData = await spotRes.json();
+let results = [];
 
-        // Fetch Futures symbols (to filter perpetuals)
-        const futRes = await fetch("https://fapi.binance.com/fapi/v1/exchangeInfo");
-        const futData = await futRes.json();
-        const futSymbols = new Set(futData.symbols.map(s => s.symbol));
+function pctChange(prev, curr) {
+  if (!prev) return NaN;
+  return ((curr - prev) / prev) * 100;
+}
+function formatPct(v) {
+  if (isNaN(v)) return '—';
+  return v.toFixed(2) + '%';
+}
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
 
-        let rows = [];
+async function fetchPerpSymbols() {
+  const url = 'https://fapi.binance.com/fapi/v1/exchangeInfo';
+  const r = await fetch(url);
+  const data = await r.json();
+  return data.symbols
+    .filter(s => s.contractType === 'PERPETUAL' && s.symbol.endsWith('USDT') && !EXCLUDE.includes(s.symbol))
+    .map(s => s.symbol);
+}
 
-        for (let d of spotData) {
-          if (!d.symbol.endsWith("USDT")) continue; // only USDT pairs
-          if (excludeSymbols.includes(d.symbol)) continue;
-          if (!futSymbols.has(d.symbol)) continue; // only if perpetual exists
+async function fetchTopSymbols(limit=MAX_SYMBOLS) {
+  const [tickRes, perpSymbols] = await Promise.all([
+    fetch('https://fapi.binance.com/fapi/v1/ticker/24hr'),
+    fetchPerpSymbols()
+  ]);
+  const tick = await tickRes.json();
+  return tick
+    .filter(t => perpSymbols.includes(t.symbol))
+    .sort((a,b) => Math.abs(parseFloat(b.priceChangePercent)) - Math.abs(parseFloat(a.priceChangePercent)))
+    .slice(0, limit)
+    .map(t => t.symbol);
+}
 
-          let takerBuyNow = parseFloat(d.takerBuyQuoteAssetVolume);
-          let totalQuoteNow = parseFloat(d.quoteVolume);
-          if (totalQuoteNow === 0) continue;
-          let takerSellNow = totalQuoteNow - takerBuyNow;
+async function fetchKlines(symbol, interval, limit) {
+  const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+  const r = await fetch(url);
+  const raw = await r.json();
+  return raw.map(c => ({open:+c[1], close:+c[4], volume:+c[5]}));
+}
 
-          // Previous cumulative snapshot
-          let prevCum = prevData[d.symbol];
-          let intervalBuy, intervalSell;
+function checkSymbol(symbol, klines) {
+  if (klines.length < 3) return null;
+  const prev2 = klines[0], prev = klines[1], last = klines[2];
+  // (1) Color of last 2 candles differ
+  const lastGreen = last.close > last.open;
+  const prevGreen = prev.close > prev.open;
+  if (lastGreen === prevGreen) return null;
+  // (2) Volumes: last > prev > prev2
+  if (!(last.volume > prev.volume && prev.volume > prev2.volume)) return null;
 
-          if (prevCum) {
-            intervalBuy = takerBuyNow - prevCum.buy;
-            intervalSell = takerSellNow - prevCum.sell;
-          } else {
-            intervalBuy = 0;
-            intervalSell = 0;
-          }
+  return {
+    symbol,
+    closePct: pctChange(prev.close, last.close),
+    currVolPct: pctChange(prev.volume, last.volume),
+    prevVolPct: pctChange(prev2.volume, prev.volume)
+  };
+}
 
-          // Current interval ratio
-          let currRatio = intervalBuy / (intervalSell || 1);
+function appendRow(obj) {
+  const tr = document.createElement('tr');
+  tr.className = 'match';
+  tr.innerHTML = `
+    <td><strong>${obj.symbol}</strong></td>
+    <td>${formatPct(obj.closePct)}</td>
+    <td>${formatPct(obj.currVolPct)}</td>
+    <td>${formatPct(obj.prevVolPct)}</td>
+  `;
+  resultsBody.appendChild(tr);
+}
 
-          // Previous interval ratio (from last Refresh)
-          let prevIntervalVals = prevInterval[d.symbol];
-          let prevRatio = prevIntervalVals ? prevIntervalVals.ratio : 0;
+function sortResults(list, sortKey) {
+  const [key, order] = sortKey.split('_');
+  const m = (order==='asc'?1:-1);
+  return list.sort((a,b)=>{
+    if(a[key]==null) return 1;
+    if(b[key]==null) return -1;
+    if(typeof a[key]==="string") return a[key].localeCompare(b[key])*m;
+    return (a[key]-b[key])*m;
+  });
+}
 
-          // % changes compared to previous interval
-          let ratioChange = prevRatio ? ((currRatio - prevRatio) / prevRatio * 100).toFixed(2) : 0;
-          let buyChange = prevIntervalVals ? ((intervalBuy - prevIntervalVals.buy) / prevIntervalVals.buy * 100).toFixed(2) : 0;
-          let sellChange = prevIntervalVals ? ((intervalSell - prevIntervalVals.sell) / prevIntervalVals.sell * 100).toFixed(2) : 0;
+function renderTable() {
+  const sorted = sortResults([...results], sortSelect.value);
+  resultsBody.innerHTML = '';
+  if(sorted.length===0){
+    resultsBody.innerHTML = '<tr><td colspan="4" class="small">No matches found.</td></tr>';
+    return;
+  }
+  sorted.forEach(r=>appendRow(r));
+}
 
-          rows.push(`
-            <tr>
-              <td>${d.symbol}</td>
-              <td>${prevRatio.toFixed(4)}</td>
-              <td>${currRatio.toFixed(4)}</td>
-              <td>${ratioChange}%</td>
-              <td>${buyChange}%</td>
-              <td>${sellChange}%</td>
-            </tr>
-          `);
+async function runScan(){
+  results=[];
+  resultsBody.innerHTML='<tr><td colspan="4" class="small">Scanning...</td></tr>';
+  statusEl.textContent="Fetching symbols...";
+  const symbols=await fetchTopSymbols(MAX_SYMBOLS);
+  let i=0;
+  for(const sym of symbols){
+    i++;
+    statusEl.textContent=`Scanning ${i}/${symbols.length}: ${sym}`;
+    try{
+      const klines=await fetchKlines(sym,INTERVAL,LIMIT);
+      const res=checkSymbol(sym,klines);
+      if(res){results.push(res); appendRow(res);}
+    }catch(e){console.warn("error",sym,e);}
+    await sleep(PAUSE_MS);
+  }
+  statusEl.textContent=`Done — ${results.length} matches`;
+  renderTable();
+}
 
-          // Update snapshots
-          prevData[d.symbol] = { buy: takerBuyNow, sell: takerSellNow }; // cumulative
-          prevInterval[d.symbol] = { buy: intervalBuy, sell: intervalSell, ratio: currRatio }; // interval
-        }
-
-        document.querySelector("#dataTable tbody").innerHTML = rows.join("");
-        applyFilter();
-
-      } catch (err) {
-        console.error("Error fetching data", err);
-      }
-    }
-
-    function applyFilter() {
-      let filter = document.getElementById("filterBox").value.toUpperCase();
-      let rows = document.querySelectorAll("#dataTable tbody tr");
-      rows.forEach(row => {
-        let symbol = row.cells[0].innerText.toUpperCase();
-        if (symbol.includes(filter)) {
-          row.style.display = "";
-        } else {
-          row.style.display = "none";
-        }
-      });
-    }
-
-    document.getElementById("filterBox").addEventListener("keyup", applyFilter);
-  </script>
+refreshBtn.addEventListener('click',()=>{
+  refreshBtn.disabled=true;
+  runScan().finally(()=>refreshBtn.disabled=false);
+});
+sortSelect.addEventListener('change',renderTable);
+window.addEventListener('load',()=>refreshBtn.click());
+</script>
 </body>
 </html>
