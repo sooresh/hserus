@@ -148,7 +148,7 @@ async function processSymbol(symbol){
   const currOpen = Number(curr[1]), currClose = Number(curr[4]), currVol = Number(curr[5]);
   const prev1Vol = Number(prev1[5]), prev2Vol = Number(klines[0][5]);
   const candleChangePct = (currClose - currOpen) / currOpen * 100;
-  if (!(Math.abs(candleChangePct) > 1)) return;
+  if (!(Math.abs(candleChangePct) > 0.7)) return;
   if (!(currVol > prev1Vol && currVol > prev2Vol)) return;
 
   // 2) Ratios (prev & curr hour)
@@ -223,3 +223,4 @@ function renderTable(rows){
 </script>
 </body>
 </html>
+
