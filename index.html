@@ -1,198 +1,225 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>hserus</title>
 <style>
-:root{--bg:#08131d;--card:#0f212e;--muted:#8fa2b7;--accent:#7be3c7;--danger:#ff9a9a}
-body{margin:0;font-family:Arial,Helvetica,sans-serif;background:linear-gradient(#020c14,#061520);color:#e6f3f6;padding:14px}
-header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px}
-h1{margin:0;font-size:18px}
-.controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-select,button{padding:6px 10px;border-radius:6px;border:1px solid #12333d;background:var(--card);color:inherit}
-button{cursor:pointer}
-#status{font-size:13px;color:var(--muted)}
-table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}
-th,td{text-align:left;padding:8px;border-bottom:1px solid rgba(255,255,255,0.06)}
-th{color:var(--muted);font-size:12px;cursor:pointer}
-tr.match{background:rgba(11,36,48,0.4)}
-.green{color:#7be3c7}
-.red{color:#ff9a9a}
-.small{font-size:12px;color:var(--muted)}
+  body { font-family: Arial, Helvetica, sans-serif; margin:18px; background:#f7f9fc; color:#111; }
+  h1 { font-size:20px; margin-bottom:6px; }
+  .controls { display:flex; gap:10px; align-items:center; margin-bottom:10px; }
+  button { padding:8px 12px; border-radius:6px; border:1px solid #888; background:#fff; cursor:pointer; }
+  button:active { transform:translateY(1px); }
+  #progress { font-size:13px; color:#333; }
+  table { border-collapse:collapse; width:100%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,0.06); }
+  th, td { padding:10px 8px; text-align:left; border-bottom:1px solid #eee; font-size:13px; }
+  th { cursor:pointer; user-select:none; position:relative; }
+  th .sort-ind { font-size:11px; margin-left:6px; color:#666; }
+  tr.match { background: #e9fff2; }
+  .small { font-size:12px; color:#555; }
 </style>
 </head>
 <body>
-<header>
-  <div>
-    <h1>hserus</h1>
-    <div class="small">hserus</div>
-  </div>
+  <h1>hserus</h1>
   <div class="controls">
-    <label class="small">Sort:
-      <select id="sortSelect">
-        <option value="closePct_desc">Close % ↓</option>
-        <option value="closePct_asc">Close % ↑</option>
-        <option value="currVolPct_desc">Curr Vol % ↓</option>
-        <option value="currVolPct_asc">Curr Vol % ↑</option>
-        <option value="prevVolPct_desc">Prev Vol % ↓</option>
-        <option value="prevVolPct_asc">Prev Vol % ↑</option>
-        <option value="symbol_asc">Symbol A→Z</option>
-        <option value="symbol_desc">Symbol Z→A</option>
-      </select>
-    </label>
     <button id="refreshBtn">Refresh</button>
-    <div id="status">Idle</div>
+    <div id="progress" class="small">Idle</div>
+    <div style="flex:1"></div>
+    <div class="small">Scanned: <span id="scannedCount">0</span>/<span id="totalCount">0</span></div>
   </div>
-</header>
 
-<main>
-  <table>
+  <table id="resultsTable">
     <thead>
       <tr>
-        <th>Symbol</th>
-        <th>Close %</th>
-        <th>Curr Vol %</th>
-        <th>Prev Vol %</th>
+        <th data-col="symbol">Symbol <span class="sort-ind"></span></th>
+        <th data-col="closePct">Close % <span class="sort-ind"></span></th>
+        <th data-col="volPct">Vol % <span class="sort-ind"></span></th>
+        <th data-col="netPct">Net Δ% <span class="sort-ind"></span></th>
       </tr>
     </thead>
-    <tbody id="resultsBody">
-      <tr><td colspan="4" class="small">Click Refresh to start scanning...</td></tr>
-    </tbody>
+    <tbody></tbody>
   </table>
-</main>
 
 <script>
-const LIMIT = 3;  // need last 3 candles
-const INTERVAL = '1h';
+const EXCLUDE_TOP_25 = [
+  "BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT","SOLUSDT","DOTUSDT","DOGEUSDT","TRXUSDT",
+  "LTCUSDT","LINKUSDT","BCHUSDT","MATICUSDT","UNIUSDT","AVAXUSDT","SHIBUSDT","NEARUSDT",
+  "ALGOUSDT","ATOMUSDT","XMRUSDT","APEUSDT","SANDUSDT","FILUSDT","VETUSDT","ICPUSDT"
+];
+
 const MAX_SYMBOLS = 200;
-const EXCLUDE = ["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT","XRPUSDT","ADAUSDT","DOGEUSDT","TONUSDT","AVAXUSDT","DOTUSDT","TRXUSDT","SHIBUSDT","LINKUSDT","NEARUSDT","MATICUSDT","LTCUSDT","UNIUSDT","BCHUSDT","ICPUSDT","LEOUSDT"];
-const PAUSE_MS = 120;
+const TIMEFRAME = "1h";
 
-const resultsBody = document.getElementById('resultsBody');
-const statusEl = document.getElementById('status');
-const sortSelect = document.getElementById('sortSelect');
-const refreshBtn = document.getElementById('refreshBtn');
+const resultsTableBody = document.querySelector("#resultsTable tbody");
+const progressEl = document.getElementById("progress");
+const scannedCountEl = document.getElementById("scannedCount");
+const totalCountEl = document.getElementById("totalCount");
+const refreshBtn = document.getElementById("refreshBtn");
 
-let results = [];
+let currentSort = { col: "symbol", dir: 1 };
+refreshBtn.addEventListener("click", startScan);
 
-function pctChange(prev, curr) {
-  if (!prev) return NaN;
-  return ((curr - prev) / prev) * 100;
+document.querySelectorAll("th[data-col]").forEach(th => {
+  th.addEventListener("click", () => {
+    const col = th.dataset.col;
+    if (currentSort.col === col) currentSort.dir *= -1;
+    else { currentSort.col = col; currentSort.dir = 1; }
+    renderTable(currentMatches);
+  });
+});
+
+let currentMatches = [];
+
+function fmtNum(n, decimals=2) {
+  if (isNaN(n) || n === null) return "-";
+  return Number(n).toFixed(decimals);
 }
-function formatPct(v) {
-  if (isNaN(v)) return '—';
-  return v.toFixed(2) + '%';
+function fmtSignedPct(v){
+  if (!isFinite(v)) return "∞";
+  const s = (v >= 0 ? "+" : "") + fmtNum(v, 2) + "%";
+  return s;
 }
 function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
 
-async function fetchPerpSymbols() {
-  const url = 'https://fapi.binance.com/fapi/v1/exchangeInfo';
-  const r = await fetch(url);
-  const data = await r.json();
-  return data.symbols
-    .filter(s => s.contractType === 'PERPETUAL' && s.symbol.endsWith('USDT') && !EXCLUDE.includes(s.symbol))
-    .map(s => s.symbol);
+async function fetchWithTimeout(url, opts={}, ms=12000){
+  const controller = new AbortController();
+  const id = setTimeout(()=>controller.abort(), ms);
+  try {
+    opts.signal = controller.signal;
+    const res = await fetch(url, opts);
+    clearTimeout(id);
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res;
+  } catch (e) {
+    clearTimeout(id);
+    throw e;
+  }
 }
 
-async function fetchTopSymbols(limit=MAX_SYMBOLS) {
-  const [tickRes, perpSymbols] = await Promise.all([
-    fetch('https://fapi.binance.com/fapi/v1/ticker/24hr'),
-    fetchPerpSymbols()
-  ]);
-  const tick = await tickRes.json();
-  return tick
-    .filter(t => perpSymbols.includes(t.symbol))
-    .sort((a,b) => Math.abs(parseFloat(b.priceChangePercent)) - Math.abs(parseFloat(a.priceChangePercent)))
-    .slice(0, limit)
-    .map(t => t.symbol);
+async function startScan(){
+  currentMatches = [];
+  resultsTableBody.innerHTML = "";
+  progressEl.textContent = "Getting symbol list...";
+  scannedCountEl.textContent = "0";
+  totalCountEl.textContent = "0";
+
+  try {
+    const tickersResp = await fetchWithTimeout("https://fapi.binance.com/fapi/v1/ticker/24hr");
+    const tickers = await tickersResp.json();
+
+    let usdtTickers = tickers.filter(t => t.symbol && t.symbol.endsWith("USDT"));
+    usdtTickers = usdtTickers.filter(t => !EXCLUDE_TOP_25.includes(t.symbol));
+    usdtTickers.forEach(t => { t.abs24h = Math.abs(Number(t.priceChangePercent || 0)); });
+    usdtTickers.sort((a,b) => b.abs24h - a.abs24h);
+    const selected = usdtTickers.slice(0, MAX_SYMBOLS);
+    totalCountEl.textContent = String(selected.length);
+
+    let idx = 0;
+    for (const t of selected){
+      idx++;
+      scannedCountEl.textContent = String(idx);
+      progressEl.textContent = `Scanning ${idx} / ${selected.length}: ${t.symbol}`;
+      try {
+        await processSymbol(t.symbol);
+      } catch (e) {
+        console.warn("Failed symbol", t.symbol, e);
+      }
+      await sleep(200);
+    }
+    progressEl.textContent = `Done — found ${currentMatches.length} matches`;
+    renderTable(currentMatches);
+
+  } catch (err) {
+    console.error(err);
+    progressEl.textContent = "Error: " + (err.message || err);
+  }
 }
 
-async function fetchKlines(symbol, interval, limit) {
-  const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
-  const r = await fetch(url);
-  const raw = await r.json();
-  return raw.map(c => ({open:+c[1], close:+c[4], volume:+c[5]}));
+async function processSymbol(symbol){
+  // 1) Last 3 hourly klines
+  const kURL = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${TIMEFRAME}&limit=3`;
+  const kres = await fetchWithTimeout(kURL);
+  const klines = await kres.json();
+  if (!Array.isArray(klines) || klines.length < 3) return;
+
+  const prev1 = klines[1];
+  const curr = klines[2];
+
+  const currOpen = Number(curr[1]), currClose = Number(curr[4]), currVol = Number(curr[5]);
+  const prev1Vol = Number(prev1[5]), prev2Vol = Number(klines[0][5]);
+  const candleChangePct = (currClose - currOpen) / currOpen * 100;
+  if (!(Math.abs(candleChangePct) > 1)) return;
+  if (!(currVol > prev1Vol && currVol > prev2Vol)) return;
+
+  // 2) Ratios (prev & curr hour)
+  const ratioURL = `https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=${symbol}&period=1h&limit=2`;
+  const rres = await fetchWithTimeout(ratioURL);
+  const ratios = await rres.json();
+  if (!Array.isArray(ratios) || ratios.length < 2) return;
+  ratios.sort((a,b) => a.timestamp - b.timestamp);
+  const prevRatio = ratios[0], currRatio = ratios[1];
+  const pL = Number(prevRatio.longAccount), pS = Number(prevRatio.shortAccount);
+  const cL = Number(currRatio.longAccount), cS = Number(currRatio.shortAccount);
+
+  // 3) Open Interest history (prev & curr hour)
+  const oiURL = `https://fapi.binance.com/futures/data/openInterestHist?symbol=${symbol}&period=1h&limit=2`;
+  const oires = await fetchWithTimeout(oiURL);
+  const oiHist = await oires.json();
+  if (!Array.isArray(oiHist) || oiHist.length < 2) return;
+  oiHist.sort((a,b) => a.timestamp - b.timestamp);
+  const prevOI = Number(oiHist[0].sumOpenInterest), currOI = Number(oiHist[1].sumOpenInterest);
+
+  // 4) Compute longs/shorts/net
+  const prevLongs = prevOI * (pL / (pL + pS));
+  const prevShorts = prevOI - prevLongs;
+  const currLongs = currOI * (cL / (cL + cS));
+  const currShorts = currOI - currLongs;
+
+  const isRed = currClose < currOpen;
+  const isGreen = currClose > currOpen;
+  let netChangePct = 0;
+  if (isRed) {
+    if (!(currLongs > prevLongs)) return;
+    netChangePct = prevLongs === 0 ? 0 : ((currLongs - prevLongs)/Math.abs(prevLongs))*100;
+  } else if (isGreen) {
+    if (!(currShorts > prevShorts)) return;
+    netChangePct = prevShorts === 0 ? 0 : ((currShorts - prevShorts)/Math.abs(prevShorts))*100;
+  } else return;
+
+  const closePct = candleChangePct;
+  const volPct = ((currVol - prev1Vol) / prev1Vol) * 100;
+
+  currentMatches.push({ symbol, closePct, volPct, netPct: netChangePct });
+  renderTable(currentMatches);
 }
 
-function checkSymbol(symbol, klines) {
-  if (klines.length < 3) return null;
-  const prev2 = klines[0], prev = klines[1], last = klines[2];
-  // (1) Color of last 2 candles differ
-  const lastGreen = last.close > last.open;
-  const prevGreen = prev.close > prev.open;
-  if (lastGreen === prevGreen) return null;
-  // (2) Volumes: last > prev > prev2
-  if (!(last.volume > prev.volume && prev.volume > prev2.volume)) return null;
+function renderTable(rows){
+  const sorted = rows.slice();
+  const col = currentSort.col, dir = currentSort.dir;
+  sorted.sort((a,b)=>{
+    let va = a[col], vb = b[col];
+    if (col === "symbol") return dir * (va.localeCompare(vb));
+    else return dir * (Number(va||0) - Number(vb||0));
+  });
 
-  return {
-    symbol,
-    closePct: pctChange(prev.close, last.close),
-    currVolPct: pctChange(prev.volume, last.volume),
-    prevVolPct: pctChange(prev2.volume, prev.volume)
-  };
-}
-
-function appendRow(obj) {
-  const tr = document.createElement('tr');
-  tr.className = 'match';
-  tr.innerHTML = `
-    <td><strong>${obj.symbol}</strong></td>
-    <td>${formatPct(obj.closePct)}</td>
-    <td>${formatPct(obj.currVolPct)}</td>
-    <td>${formatPct(obj.prevVolPct)}</td>
-  `;
-  resultsBody.appendChild(tr);
-}
-
-function sortResults(list, sortKey) {
-  const [key, order] = sortKey.split('_');
-  const m = (order==='asc'?1:-1);
-  return list.sort((a,b)=>{
-    if(a[key]==null) return 1;
-    if(b[key]==null) return -1;
-    if(typeof a[key]==="string") return a[key].localeCompare(b[key])*m;
-    return (a[key]-b[key])*m;
+  resultsTableBody.innerHTML = "";
+  for (const r of sorted){
+    const tr = document.createElement("tr");
+    tr.className = "match";
+    tr.innerHTML = `
+      <td>${r.symbol}</td>
+      <td>${fmtSignedPct(r.closePct)}</td>
+      <td>${fmtSignedPct(r.volPct)}</td>
+      <td>${fmtSignedPct(r.netPct)}</td>
+    `;
+    resultsTableBody.appendChild(tr);
+  }
+  document.querySelectorAll("th[data-col]").forEach(th=>{
+    const sc = th.dataset.col, ind = th.querySelector(".sort-ind");
+    if (sc === currentSort.col) ind.textContent = currentSort.dir === 1 ? "▲" : "▼";
+    else ind.textContent = "";
   });
 }
-
-function renderTable() {
-  const sorted = sortResults([...results], sortSelect.value);
-  resultsBody.innerHTML = '';
-  if(sorted.length===0){
-    resultsBody.innerHTML = '<tr><td colspan="4" class="small">No matches found.</td></tr>';
-    return;
-  }
-  sorted.forEach(r=>appendRow(r));
-}
-
-async function runScan(){
-  results=[];
-  resultsBody.innerHTML='<tr><td colspan="4" class="small">Scanning...</td></tr>';
-  statusEl.textContent="Fetching symbols...";
-  const symbols=await fetchTopSymbols(MAX_SYMBOLS);
-  let i=0;
-  for(const sym of symbols){
-    i++;
-    statusEl.textContent=`Scanning ${i}/${symbols.length}: ${sym}`;
-    try{
-      const klines=await fetchKlines(sym,INTERVAL,LIMIT);
-      const res=checkSymbol(sym,klines);
-      if(res){results.push(res); appendRow(res);}
-    }catch(e){console.warn("error",sym,e);}
-    await sleep(PAUSE_MS);
-  }
-  statusEl.textContent=`Done — ${results.length} matches`;
-  renderTable();
-}
-
-refreshBtn.addEventListener('click',()=>{
-  refreshBtn.disabled=true;
-  runScan().finally(()=>refreshBtn.disabled=false);
-});
-sortSelect.addEventListener('change',renderTable);
-window.addEventListener('load',()=>refreshBtn.click());
 </script>
 </body>
 </html>
-
