@@ -27,7 +27,6 @@
   .green{color:#7be3c7}
   .red{color:var(--danger)}
   .placeholder{color:var(--muted)}
-  @media(max-width:900px){th,td{padding:8px;font-size:13px}h1{font-size:16px}}
 </style>
 </head>
 <body>
@@ -46,8 +45,8 @@
     <div id="bar"><div id="fill"></div></div>
   </div>
 
-  <div class="tableWrap" aria-live="polite">
-    <table id="resultsTable" role="table" aria-label="scanner results">
+  <div class="tableWrap">
+    <table id="resultsTable">
       <thead>
         <tr>
           <th data-key="symbol">Symbol</th>
@@ -58,16 +57,18 @@
         </tr>
       </thead>
       <tbody id="tbody">
-        <tr><td colspan="5" class="placeholder">Click <strong>Refresh</strong> to start scan.</td></tr>
+        <tr><td colspan="5" class="placeholder">Click Refresh to start scan.</td></tr>
       </tbody>
     </table>
   </div>
 
 <script>
-/* CONFIG */
-const BASE = 'https://fapi.binance.com';
+/* ---------- CONFIG ---------- */
+const PROXY = "https://test.suresh291283.workers.dev";  // ← replace this
+const BASE = PROXY;
 const MAX_SYMBOLS = 250;
-const BATCH_SIZE = 2;           // requested: batches of 5 symbols
+const BATCH_SIZE = 5;
+
 const EXCLUDE_TOP = new Set([
   "BTCUSDT","ETHUSDT","BNBUSDT","SOLUSDT","XRPUSDT","ADAUSDT","DOGEUSDT","MATICUSDT",
   "AVAXUSDT","DOTUSDT","LINKUSDT","TRXUSDT","LTCUSDT","SHIBUSDT","UNIUSDT","NEARUSDT",
@@ -84,103 +85,80 @@ const resultsTable = document.getElementById('resultsTable');
 /* UTILS */
 const sleep = ms => new Promise(r=>setTimeout(r,ms));
 function pct(a,b){ if(!isFinite(a) || !isFinite(b) || b===0) return NaN; return ((a-b)/b)*100; }
-function round(v, d=2){ if(!isFinite(v)) return '—'; return Number(v).toFixed(d); }
+function round(v, d=2){ return isFinite(v) ? Number(v).toFixed(d) : '—'; }
 function candleColor(o,c){ if(c>o) return 'green'; if(c<o) return 'red'; return 'doji'; }
 
 /* NETWORK HELPERS */
 async function fetchJSON(url){
   const r = await fetch(url);
-  if(!r.ok) throw new Error(url + ' -> ' + r.status);
+  if(!r.ok) throw new Error("HTTP " + r.status);
   return r.json();
 }
 
 async function getPerpSymbols(){
-  // get 1) exchangeInfo for perps, 2) ticker24hr to score volatility
   const [ei, tick] = await Promise.all([
     fetchJSON(`${BASE}/exchangeInfo`),
     fetchJSON(`${BASE}/ticker/24hr`)
   ]);
+
   const perpSet = new Set((ei.symbols || [])
     .filter(s=>s.contractType==='PERPETUAL' && s.symbol.endsWith('USDT'))
     .map(s=>s.symbol));
-  // filter tickers to perpetual USDT and exclude top caps, then sort by abs(priceChangePercent)*quoteVolume
-  const filtered = (tick || []).filter(t => perpSet.has(t.symbol) && t.symbol.endsWith('USDT') && !EXCLUDE_TOP.has(t.symbol))
-    .map(t => ({symbol: t.symbol, score: Math.abs(Number(t.priceChangePercent || 0)) * Number(t.quoteVolume || 0)}))
-    .sort((a,b) => b.score - a.score)
+
+  const filtered = (tick || [])
+    .filter(t => perpSet.has(t.symbol) && !EXCLUDE_TOP.has(t.symbol))
+    .map(t => ({symbol: t.symbol, score: Math.abs(t.priceChangePercent) * t.quoteVolume}))
+    .sort((a,b)=>b.score - a.score)
     .slice(0, MAX_SYMBOLS)
     .map(x => x.symbol);
+
   return filtered;
 }
 
 async function fetchKlines(symbol, limit=30){
-  const url = `${BASE}/klines?symbol=${encodeURIComponent(symbol)}&interval=1h&limit=${limit}`;
-  return fetchJSON(url);
+  return fetchJSON(`${BASE}/klines?symbol=${symbol}&interval=1h&limit=${limit}`);
 }
 
-/* BOLLINGER helpers */
-function sma(arr){
-  if(!arr || arr.length===0) return NaN;
-  return arr.reduce((a,b)=>a+b,0)/arr.length;
-}
+/* BB + Pattern Check */
+function sma(arr){ return arr.reduce((a,b)=>a+b,0)/arr.length; }
 function std(arr, mean){
-  if(!arr || arr.length===0) return NaN;
-  const m = typeof mean === 'number' ? mean : sma(arr);
-  const v = arr.reduce((s,x)=>s + Math.pow(x - m, 2), 0) / arr.length;
-  return Math.sqrt(v);
+  return Math.sqrt(arr.reduce((s,x)=>s+(x-mean)**2,0)/arr.length);
 }
 
-/* Pattern checks */
 function checkPatterns(k) {
-  // k: array of klines oldest->newest
-  // returns object {pass:bool, ratio:number, note:string}
-  if(!k || k.length < 21) return {pass:false};
-
+  if(k.length < 21) return {pass:false};
   const closes = k.map(r => Number(r[4]));
-  const midsArr = closes.slice(-20);
-  const mid = sma(midsArr);
-  const sd = std(midsArr, mid);
+  const last20 = closes.slice(-20);
+  const mid = sma(last20);
+  const sd = std(last20, mid);
   const upper = mid + 2*sd;
   const lower = mid - 2*sd;
 
-  const last = k[k.length - 1];
-  const prev = k[k.length - 2];
+  const last = k.at(-1);
+  const prev = k.at(-2);
 
-  const o = Number(last[1]), h = Number(last[2]), l = Number(last[3]), c = Number(last[4]), v = Number(last[5]);
-  const po = Number(prev[1]), pc = Number(prev[4]), pv = Number(prev[5]);
+  const o = +last[1], h = +last[2], l = +last[3], c = +last[4], v = +last[5];
+  const po = +prev[1], pc = +prev[4], pv = +prev[5];
 
-  // Condition 1
   if(!(v > pv * 1.5)) return {pass:false};
 
-  // pattern 2a
-  if(h > upper && c < upper && c > mid){
-    // ratio = (current High - current upper bb) / (current upper bb - current close)
-    const denom = (upper - c);
-    const ratio = denom === 0 ? NaN : (h - upper) / denom;
-    return {pass:true, ratio, pattern:'2a', mid, upper, lower, prevColor: candleColor(po,pc), currColor: candleColor(o,c), o,h,l,c,v,po,pc,pv};
-  }
-  // 2b
-  if(h > mid && c < mid && c > lower){
-    const denom = (mid - c);
-    const ratio = denom === 0 ? NaN : (h - mid) / denom;
-    return {pass:true, ratio, pattern:'2b', mid, upper, lower, prevColor: candleColor(po,pc), currColor: candleColor(o,c), o,h,l,c,v,po,pc,pv};
-  }
-  // 2c
-  if(l < lower && c > lower && c < mid){
-    const denom = (lower - l);
-    const ratio = denom === 0 ? NaN : (c - lower) / denom;
-    return {pass:true, ratio, pattern:'2c', mid, upper, lower, prevColor: candleColor(po,pc), currColor: candleColor(o,c), o,h,l,c,v,po,pc,pv};
-  }
-  // 2d
-  if(l < mid && c > mid && c < upper){
-    const denom = (mid - l);
-    const ratio = denom === 0 ? NaN : (c - mid) / denom;
-    return {pass:true, ratio, pattern:'2d', mid, upper, lower, prevColor: candleColor(po,pc), currColor: candleColor(o,c), o,h,l,c,v,po,pc,pv};
-  }
+  // patterns...
+  if(h > upper && c < upper && c > mid)
+    return {pass:true, ratio:(h-upper)/(upper-c), currColor:candleColor(o,c), prevColor:candleColor(po,pc)};
+
+  if(h > mid && c < mid && c > lower)
+    return {pass:true, ratio:(h-mid)/(mid-c), currColor:candleColor(o,c), prevColor:candleColor(po,pc)};
+
+  if(l < lower && c > lower && c < mid)
+    return {pass:true, ratio:(c-lower)/(lower-l), currColor:candleColor(o,c), prevColor:candleColor(po,pc)};
+
+  if(l < mid && c > mid && c < upper)
+    return {pass:true, ratio:(c-mid)/(mid-l), currColor:candleColor(o,c), prevColor:candleColor(po,pc)};
 
   return {pass:false};
 }
 
-/* RENDER helpers */
+/* RENDER */
 function appendRowLive(obj){
   const tr = document.createElement('tr');
   tr.innerHTML = `
@@ -188,118 +166,86 @@ function appendRowLive(obj){
     <td class="${obj.closePct>=0? 'green':'red'}">${round(obj.closePct)}%</td>
     <td>${round(obj.volPct)}%</td>
     <td>${obj.same}</td>
-    <td>${isNaN(obj.ratio) ? '—' : Number(obj.ratio).toFixed(4)}</td>
+    <td>${isNaN(obj.ratio) ? '—' : obj.ratio.toFixed(4)}</td>
   `;
   tbody.appendChild(tr);
 }
 
-/* SORTING */
+/* TABLE SORT */
 function parseCellValue(text){
-  if(!text) return NaN;
-  // remove % and commas
   const cleaned = text.replace(/[%\+,]/g,'').trim();
   const n = Number(cleaned);
   return Number.isFinite(n) ? n : text.toLowerCase();
 }
-function sortTable(colIndex){
-  const ths = resultsTable.tHead.rows[0].cells;
-  const key = 'sort-' + colIndex;
+function sortTable(col){
   const tbodyEl = resultsTable.tBodies[0];
   const rows = Array.from(tbodyEl.rows);
-  const asc = !resultsTable.dataset[key] || resultsTable.dataset[key] === 'desc';
+  const asc = !(resultsTable.dataset["s"+col] === "asc");
   rows.sort((a,b)=>{
-    const aVal = parseCellValue(a.cells[colIndex].innerText);
-    const bVal = parseCellValue(b.cells[colIndex].innerText);
-    if(typeof aVal === 'number' && typeof bVal === 'number') return asc ? aVal - bVal : bVal - aVal;
-    return asc ? String(aVal).localeCompare(String(bVal)) : String(bVal).localeCompare(String(aVal));
+    const av=parseCellValue(a.cells[col].innerText);
+    const bv=parseCellValue(b.cells[col].innerText);
+    if(typeof av==="number" && typeof bv==="number") return asc?av-bv:bv-av;
+    return asc?String(av).localeCompare(String(bv)):String(bv).localeCompare(String(av));
   });
-  rows.forEach(r => tbodyEl.appendChild(r));
-  resultsTable.dataset[key] = asc ? 'asc' : 'desc';
+  rows.forEach(r=>tbodyEl.appendChild(r));
+  resultsTable.dataset["s"+col] = asc?"asc":"desc";
 }
-Array.from(resultsTable.tHead.rows[0].cells).forEach((th, idx) => {
-  th.addEventListener('click', ()=> sortTable(idx));
-});
+Array.from(resultsTable.tHead.rows[0].cells).forEach((th,i)=> th.onclick = ()=>sortTable(i));
 
-/* MAIN SCAN FUNCTION */
+/* MAIN */
 async function runScan(){
   try{
     refreshBtn.disabled = true;
-    tbody.innerHTML = '<tr><td colspan="5" class="placeholder">Preparing scan...</td></tr>';
-    statusEl.textContent = 'Fetching symbols...';
+    tbody.innerHTML = '<tr><td colspan="5" class="placeholder">Preparing...</td></tr>';
     fill.style.width = '0%';
 
+    statusEl.textContent = 'Fetching symbols...';
     const symbols = await getPerpSymbols();
-    statusEl.textContent = `Scanning 0 / ${symbols.length}`;
+
     tbody.innerHTML = '';
     let processed = 0;
-    const matches = [];
 
     for(let i=0;i<symbols.length;i+=BATCH_SIZE){
-      const batch = symbols.slice(i, i+BATCH_SIZE);
+      const batch = symbols.slice(i,i+BATCH_SIZE);
+      const results = await Promise.all(batch.map(s => 
+        fetchKlines(s,30).then(k=>({s,k})).catch(()=>({s,k:null}))
+      ));
 
-      // fetch klines in parallel for batch
-      const kPromises = batch.map(s => fetchKlines(s, 30)
-        .then(k => ({symbol:s, kl:k}))
-        .catch(e => ({symbol:s, kl:null})));
-
-      const kResults = await Promise.all(kPromises);
-
-      // evaluate each
-      for(const res of kResults){
+      for(const res of results){
         processed++;
-        const pct = Math.round((processed / symbols.length) * 100);
-        fill.style.width = pct + '%';
-        statusEl.textContent = `Scanning ${processed} / ${symbols.length}: ${res.symbol}`;
+        fill.style.width = ((processed/symbols.length)*100)+'%';
+        statusEl.textContent = `Scanning ${processed}/${symbols.length}: ${res.s}`;
 
-        if(!res.kl || res.kl.length < 21) continue;
-        const info = checkPatterns(res.kl);
+        if(!res.k) continue;
+        const info = checkPatterns(res.k);
         if(info.pass){
-          // compute close% and vol%
-          const last = res.kl[res.kl.length-1];
-          const prev = res.kl[res.kl.length-2];
-          const o = Number(last[1]), c = Number(last[4]), v = Number(last[5]);
-          const po = Number(prev[1]), pc = Number(prev[4]), pv = Number(prev[5]);
-          const closePct = pct(c, o);
-          const volPct = pct(v, pv);
-          const same = (info.currColor === info.prevColor) ? 'Yes' : 'No';
-          const obj = {
-            symbol: res.symbol,
-            closePct,
-            volPct,
-            same,
+          const last = res.k.at(-1);
+          const prev = res.k.at(-2);
+          const o = +last[1], c = +last[4], v = +last[5];
+          const po = +prev[1], pc = +prev[4], pv = +prev[5];
+
+          appendRowLive({
+            symbol: res.s,
+            closePct: pct(c,o),
+            volPct: pct(v,pv),
+            same: info.currColor===info.prevColor?"Yes":"No",
             ratio: info.ratio
-          };
-          matches.push(obj);
-          appendRowLive(obj);
+          });
         }
       }
-
-      // polite short pause (avoid hitting rate limits too hard)
       await sleep(150);
     }
 
-    statusEl.textContent = `Scan complete — ${matches.length} matches.`;
-    fill.style.width = '100%';
+    statusEl.textContent = 'Scan complete';
     refreshBtn.disabled = false;
-  } catch(err){
-    console.error(err);
-    statusEl.textContent = 'Error: ' + (err.message || err);
+
+  }catch(e){
+    statusEl.textContent = 'Error: '+e.message;
     refreshBtn.disabled = false;
   }
 }
 
-/* Wiring */
-refreshBtn.addEventListener('click', ()=> {
-  // clear table
-  tbody.innerHTML = '<tr><td colspan="5" class="placeholder">Starting scan...</td></tr>';
-  runScan();
-});
-
-// auto-run when page loads if you want (comment out if not)
-window.addEventListener('load', ()=> {
-  // runScan();
-});
+refreshBtn.onclick = runScan;
 </script>
 </body>
 </html>
-
