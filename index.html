@@ -1,251 +1,521 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>hserus</title>
-<style>
-  :root{
-    --bg:#07121a;--card:#0b2230;--muted:#9fb6c7;--accent:#7be3c7;--danger:#ff6b6b;
-    --text:#e6f3f6;
-  }
-  body{margin:0;font-family:Inter,Arial,Helvetica,sans-serif;background:linear-gradient(#021119,#07121a);color:var(--text);padding:18px}
-  header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
-  h1{margin:0;font-size:18px}
-  .controls{display:flex;gap:8px;align-items:center}
-  button{padding:8px 12px;border-radius:8px;border:none;background:var(--accent);color:#022;cursor:pointer}
-  button[disabled]{opacity:.5;cursor:not-allowed}
-  .small{font-size:13px;color:var(--muted)}
-  #barWrap{width:100%;max-width:1100px;margin-top:12px}
-  #bar{height:10px;background:rgba(255,255,255,0.05);border-radius:8px;overflow:hidden}
-  #fill{height:100%;width:0%;background:linear-gradient(90deg,#7be3c7,#2bd18a);transition:width .25s}
-  .tableWrap{margin-top:14px;overflow:auto;border-radius:8px;background:var(--card);padding:8px}
-  table{width:100%;border-collapse:collapse;min-width:820px}
-  th,td{padding:10px;border-bottom:1px solid rgba(255,255,255,0.04);text-align:right}
-  th{background:rgba(255,255,255,0.02);cursor:pointer;color:var(--muted);font-weight:600}
-  td.symbol{text-align:left;color:#7bdfff;font-weight:700}
-  .green{color:#7be3c7}
-  .red{color:var(--danger)}
-  .placeholder{color:var(--muted)}
-</style>
-</head>
-<body>
-  <header>
-    <div>
-      <h1>hserus</h1>
-      <div class="small">hserus</div>
-    </div>
-    <div class="controls">
-      <button id="refreshBtn">🔄 Refresh</button>
-      <div id="status" class="small">Idle</div>
-    </div>
-  </header>
-
-  <div id="barWrap">
-    <div id="bar"><div id="fill"></div></div>
-  </div>
-
-  <div class="tableWrap">
-    <table id="resultsTable">
-      <thead>
-        <tr>
-          <th data-key="symbol">Symbol</th>
-          <th data-key="closePct">Close%</th>
-          <th data-key="volPct">Vol%</th>
-          <th data-key="same">Same?</th>
-          <th data-key="ratio">Ratio</th>
-        </tr>
-      </thead>
-      <tbody id="tbody">
-        <tr><td colspan="5" class="placeholder">Click Refresh to start scan.</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-<script>
-/* ---------- CONFIG ---------- */
-const PROXY = "https://test.suresh291283.workers.dev";  // ← replace this
-const BASE = PROXY;
-const MAX_SYMBOLS = 250;
-const BATCH_SIZE = 5;
-
-const EXCLUDE_TOP = new Set([
-  "BTCUSDT","ETHUSDT","BNBUSDT","SOLUSDT","XRPUSDT","ADAUSDT","DOGEUSDT","MATICUSDT",
-  "AVAXUSDT","DOTUSDT","LINKUSDT","TRXUSDT","LTCUSDT","SHIBUSDT","UNIUSDT","NEARUSDT",
-  "APTUSDT","SUIUSDT","ATOMUSDT","BCHUSDT","ICPUSDT","TONUSDT","FILUSDT","APEUSDT","OPUSDT","FTMUSDT"
-]);
-
-/* DOM */
-const refreshBtn = document.getElementById('refreshBtn');
-const statusEl = document.getElementById('status');
-const tbody = document.getElementById('tbody');
-const fill = document.getElementById('fill');
-const resultsTable = document.getElementById('resultsTable');
-
-/* UTILS */
-const sleep = ms => new Promise(r=>setTimeout(r,ms));
-function pct(a,b){ if(!isFinite(a) || !isFinite(b) || b===0) return NaN; return ((a-b)/b)*100; }
-function round(v, d=2){ return isFinite(v) ? Number(v).toFixed(d) : '—'; }
-function candleColor(o,c){ if(c>o) return 'green'; if(c<o) return 'red'; return 'doji'; }
-
-/* NETWORK HELPERS */
-async function fetchJSON(url){
-  const r = await fetch(url);
-  if(!r.ok) throw new Error("HTTP " + r.status);
-  return r.json();
-}
-
-async function getPerpSymbols(){
-  const [ei, tick] = await Promise.all([
-    fetchJSON(`${BASE}/exchangeInfo`),
-    fetchJSON(`${BASE}/ticker/24hr`)
-  ]);
-
-  const perpSet = new Set((ei.symbols || [])
-    .filter(s=>s.contractType==='PERPETUAL' && s.symbol.endsWith('USDT'))
-    .map(s=>s.symbol));
-
-  const filtered = (tick || [])
-    .filter(t => perpSet.has(t.symbol) && !EXCLUDE_TOP.has(t.symbol))
-    .map(t => ({symbol: t.symbol, score: Math.abs(t.priceChangePercent) * t.quoteVolume}))
-    .sort((a,b)=>b.score - a.score)
-    .slice(0, MAX_SYMBOLS)
-    .map(x => x.symbol);
-
-  return filtered;
-}
-
-async function fetchKlines(symbol, limit=30){
-  return fetchJSON(`${BASE}/klines?symbol=${symbol}&interval=1h&limit=${limit}`);
-}
-
-/* BB + Pattern Check */
-function sma(arr){ return arr.reduce((a,b)=>a+b,0)/arr.length; }
-function std(arr, mean){
-  return Math.sqrt(arr.reduce((s,x)=>s+(x-mean)**2,0)/arr.length);
-}
-
-function checkPatterns(k) {
-  if(k.length < 21) return {pass:false};
-  const closes = k.map(r => Number(r[4]));
-  const last20 = closes.slice(-20);
-  const mid = sma(last20);
-  const sd = std(last20, mid);
-  const upper = mid + 2*sd;
-  const lower = mid - 2*sd;
-
-  const last = k.at(-1);
-  const prev = k.at(-2);
-
-  const o = +last[1], h = +last[2], l = +last[3], c = +last[4], v = +last[5];
-  const po = +prev[1], pc = +prev[4], pv = +prev[5];
-
-  if(!(v > pv * 1.5)) return {pass:false};
-
-  // patterns...
-  if(h > upper && c < upper && c > mid)
-    return {pass:true, ratio:(h-upper)/(upper-c), currColor:candleColor(o,c), prevColor:candleColor(po,pc)};
-
-  if(h > mid && c < mid && c > lower)
-    return {pass:true, ratio:(h-mid)/(mid-c), currColor:candleColor(o,c), prevColor:candleColor(po,pc)};
-
-  if(l < lower && c > lower && c < mid)
-    return {pass:true, ratio:(c-lower)/(lower-l), currColor:candleColor(o,c), prevColor:candleColor(po,pc)};
-
-  if(l < mid && c > mid && c < upper)
-    return {pass:true, ratio:(c-mid)/(mid-l), currColor:candleColor(o,c), prevColor:candleColor(po,pc)};
-
-  return {pass:false};
-}
-
-/* RENDER */
-function appendRowLive(obj){
-  const tr = document.createElement('tr');
-  tr.innerHTML = `
-    <td class="symbol">${obj.symbol}</td>
-    <td class="${obj.closePct>=0? 'green':'red'}">${round(obj.closePct)}%</td>
-    <td>${round(obj.volPct)}%</td>
-    <td>${obj.same}</td>
-    <td>${isNaN(obj.ratio) ? '—' : obj.ratio.toFixed(4)}</td>
-  `;
-  tbody.appendChild(tr);
-}
-
-/* TABLE SORT */
-function parseCellValue(text){
-  const cleaned = text.replace(/[%\+,]/g,'').trim();
-  const n = Number(cleaned);
-  return Number.isFinite(n) ? n : text.toLowerCase();
-}
-function sortTable(col){
-  const tbodyEl = resultsTable.tBodies[0];
-  const rows = Array.from(tbodyEl.rows);
-  const asc = !(resultsTable.dataset["s"+col] === "asc");
-  rows.sort((a,b)=>{
-    const av=parseCellValue(a.cells[col].innerText);
-    const bv=parseCellValue(b.cells[col].innerText);
-    if(typeof av==="number" && typeof bv==="number") return asc?av-bv:bv-av;
-    return asc?String(av).localeCompare(String(bv)):String(bv).localeCompare(String(av));
-  });
-  rows.forEach(r=>tbodyEl.appendChild(r));
-  resultsTable.dataset["s"+col] = asc?"asc":"desc";
-}
-Array.from(resultsTable.tHead.rows[0].cells).forEach((th,i)=> th.onclick = ()=>sortTable(i));
-
-/* MAIN */
-async function runScan(){
-  try{
-    refreshBtn.disabled = true;
-    tbody.innerHTML = '<tr><td colspan="5" class="placeholder">Preparing...</td></tr>';
-    fill.style.width = '0%';
-
-    statusEl.textContent = 'Fetching symbols...';
-    const symbols = await getPerpSymbols();
-
-    tbody.innerHTML = '';
-    let processed = 0;
-
-    for(let i=0;i<symbols.length;i+=BATCH_SIZE){
-      const batch = symbols.slice(i,i+BATCH_SIZE);
-      const results = await Promise.all(batch.map(s => 
-        fetchKlines(s,30).then(k=>({s,k})).catch(()=>({s,k:null}))
-      ));
-
-      for(const res of results){
-        processed++;
-        fill.style.width = ((processed/symbols.length)*100)+'%';
-        statusEl.textContent = `Scanning ${processed}/${symbols.length}: ${res.s}`;
-
-        if(!res.k) continue;
-        const info = checkPatterns(res.k);
-        if(info.pass){
-          const last = res.k.at(-1);
-          const prev = res.k.at(-2);
-          const o = +last[1], c = +last[4], v = +last[5];
-          const po = +prev[1], pc = +prev[4], pv = +prev[5];
-
-          appendRowLive({
-            symbol: res.s,
-            closePct: pct(c,o),
-            volPct: pct(v,pv),
-            same: info.currColor===info.prevColor?"Yes":"No",
-            ratio: info.ratio
-          });
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>hserus</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom scrollbar for dark mode */
+        ::-webkit-scrollbar {
+            width: 8px;
         }
-      }
-      await sleep(150);
-    }
+        ::-webkit-scrollbar-track {
+            background: #1f2937; /* gray-800 */
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #4b5563; /* gray-600 */
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #6b7280; /* gray-500 */
+        }
 
-    statusEl.textContent = 'Scan complete';
-    refreshBtn.disabled = false;
+        /* Style for the progress bar transition */
+        #progress-bar {
+            transition: width 0.3s ease-in-out;
+        }
 
-  }catch(e){
-    statusEl.textContent = 'Error: '+e.message;
-    refreshBtn.disabled = false;
-  }
-}
+        /* Style for sortable table headers */
+        th.sortable {
+            cursor: pointer;
+            user-select: none;
+        }
+        th.sortable:hover {
+            background-color: #374151; /* gray-700 */
+        }
+        th .sort-arrow {
+            display: inline-block;
+            width: 1em;
+            text-align: right;
+            opacity: 0.5;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 font-sans p-4 md:p-8">
 
-refreshBtn.onclick = runScan;
-</script>
+    <div class="max-w-7xl mx-auto">
+        
+        <!-- Header and Refresh Button -->
+        <div class="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
+            <h1 class="text-3xl font-bold text-white">hserus</h1>
+            <button id="refresh-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-lg transition duration-200 shadow-lg flex items-center justify-center">
+                <svg id="refresh-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" class="bi bi-arrow-clockwise mr-2" viewBox="0 0 16 16">
+                    <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
+                    <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+                </svg>
+                <svg id="loading-spinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span id="refresh-text">Refresh</span>
+            </button>
+        </div>
+
+        <!-- Progress Indicator -->
+        <div id="progress-container" class="w-full bg-gray-700 rounded-full h-4 mb-6 hidden overflow-hidden">
+            <div id="progress-bar" class="bg-blue-500 h-4 rounded-full" style="width: 0%"></div>
+        </div>
+        <div id="progress-text" class="text-center text-gray-400 mb-6 hidden">Scanning...</div>
+
+        <!-- Results Table -->
+        <div class="bg-gray-800 rounded-xl shadow-2xl overflow-hidden">
+            <div class="overflow-x-auto">
+                <table id="scan-results" class="min-w-full divide-y divide-gray-700">
+                    <thead class="bg-gray-700">
+                        <tr>
+                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider sortable" data-column="symbol" data-type="string">
+                                Symbol <span class="sort-arrow"></span>
+                            </th>
+                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider sortable" data-column="closeChg" data-type="numeric">
+                                Close % <span class="sort-arrow"></span>
+                            </th>
+                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider sortable" data-column="volChg" data-type="numeric">
+                                Vol % <span class="sort-arrow"></span>
+                            </th>
+                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider sortable" data-column="sameColor" data-type="string">
+                                Color Match <span class="sort-arrow"></span>
+                            </th>
+                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider sortable" data-column="ratio" data-type="numeric">
+                                Ratio <span class="sort-arrow"></span>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody id="results-body" class="bg-gray-800 divide-y divide-gray-700">
+                        <!-- Initial message -->
+                        <tr>
+                            <td colspan="5" class="px-4 py-6 text-center text-gray-400">Click "Refresh" to start scanning.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+    <script type="module">
+        // --- Constants ---
+        const API_BASE_URL = "https://fapi.binance.com";
+        const EXCLUDE_LIST = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT'];
+        const TIMEFRAME = '1h';
+        const BB_PERIOD = 20;
+        const KLINE_LIMIT = 21; // 20 for BB + 1 previous candle
+        const VOL_MULTIPLIER = 1.5;
+        const TOP_N_VOLATILE = 250;
+        const BATCH_SIZE = 5; // Process 5 symbols in parallel
+
+        // --- DOM Elements ---
+        const refreshBtn = document.getElementById('refresh-btn');
+        const refreshText = document.getElementById('refresh-text');
+        const refreshIcon = document.getElementById('refresh-icon');
+        const loadingSpinner = document.getElementById('loading-spinner');
+        
+        const progressContainer = document.getElementById('progress-container');
+        const progressBar = document.getElementById('progress-bar');
+        const progressText = document.getElementById('progress-text');
+        
+        const resultsBody = document.getElementById('results-body');
+        const tableHeaders = document.querySelectorAll('#scan-results th.sortable');
+
+        // --- App State ---
+        let allResults = [];
+        let currentSort = {
+            column: 'volChg',
+            direction: 'desc'
+        };
+
+        // --- Event Listeners ---
+        refreshBtn.addEventListener('click', startScan);
+        document.addEventListener('DOMContentLoaded', setupSorting);
+
+        /**
+         * Main function to start the scanning process
+         */
+        async function startScan() {
+            setLoadingState(true);
+            clearTable("Scanning... Please wait.");
+            allResults = [];
+            
+            try {
+                // Step 1: Get top volatile symbols
+                updateProgress(0, `Fetching ${TOP_N_VOLATILE} most volatile symbols...`);
+                const symbols = await getTopVolatileSymbols();
+                if (symbols.length === 0) {
+                    clearTable("No volatile symbols found matching criteria.");
+                    setLoadingState(false);
+                    return;
+                }
+                
+                // Step 2: Process symbols in batches
+                await processSymbolsInBatches(symbols);
+
+                // Step 3: Final render and sort
+                if (allResults.length === 0) {
+                    clearTable("Scan complete. No symbols matched all criteria.");
+                } else {
+                    sortTable(); // Apply default sort
+                }
+                
+                updateProgress(1, `Scan complete. Found ${allResults.length} matching symbols.`);
+
+            } catch (error) {
+                console.error("Scan failed:", error);
+                clearTable(`Error: ${error.message}. Check console for details.`);
+            } finally {
+                setLoadingState(false);
+            }
+        }
+
+        /**
+         * Sets the loading state of the UI
+         * @param {boolean} isLoading - Whether to show loading state
+         */
+        function setLoadingState(isLoading) {
+            if (isLoading) {
+                refreshBtn.disabled = true;
+                refreshText.textContent = 'Scanning...';
+                refreshIcon.classList.add('hidden');
+                loadingSpinner.classList.remove('hidden');
+                progressContainer.classList.remove('hidden');
+                progressText.classList.remove('hidden');
+            } else {
+                refreshBtn.disabled = false;
+                refreshText.textContent = 'Refresh';
+                refreshIcon.classList.remove('hidden');
+                loadingSpinner.classList.add('hidden');
+            }
+        }
+
+        /**
+         * Clears the results table with an optional message
+         * @param {string} message - Message to display in the empty table
+         */
+        function clearTable(message) {
+            resultsBody.innerHTML = `<tr><td colspan="5" class="px-4 py-6 text-center text-gray-400">${message}</td></tr>`;
+        }
+
+        /**
+         * Updates the progress bar and text
+         * @param {number} percent - Progress percentage (0 to 1)
+         * @param {string} text - Text to display below the bar
+         */
+        function updateProgress(percent, text) {
+            progressBar.style.width = `${percent * 100}%`;
+            progressText.textContent = text;
+        }
+
+        /**
+         * Fetches all USDT perpetual symbols and returns the top N volatile ones
+         * @returns {Promise<string[]>} - Array of symbol strings
+         */
+        async function getTopVolatileSymbols() {
+            try {
+                // Get 24h ticker data
+                const response = await fetch(`${API_BASE_URL}/fapi/v1/ticker/24hr`);
+                if (!response.ok) throw new Error(`Binance API error: ${response.statusText}`);
+                const tickers = await response.json();
+
+                // Filter, sort, and slice
+                const volatileSymbols = tickers
+                    .filter(t => t.symbol.endsWith('USDT') && !EXCLUDE_LIST.includes(t.symbol))
+                    .sort((a, b) => Math.abs(b.priceChangePercent) - Math.abs(a.priceChangePercent))
+                    .slice(0, TOP_N_VOLATILE)
+                    .map(t => t.symbol);
+                
+                return volatileSymbols;
+            } catch (error) {
+                console.error("Failed to get top volatile symbols:", error);
+                throw new Error("Failed to fetch symbol list from Binance.");
+            }
+        }
+
+        /**
+         * Processes an array of symbols in parallel batches
+         * @param {string[]} symbols - Array of symbols to process
+         */
+        async function processSymbolsInBatches(symbols) {
+            for (let i = 0; i < symbols.length; i += BATCH_SIZE) {
+                const batch = symbols.slice(i, i + BATCH_SIZE);
+                
+                const promises = batch.map(symbol => analyzeSymbol(symbol).catch(e => {
+                    console.warn(`Failed to analyze ${symbol}:`, e.message);
+                    return null; // Don't let one failed symbol stop the batch
+                }));
+                
+                const batchResults = await Promise.all(promises);
+                
+                // Add valid results to the main list
+                for (const result of batchResults) {
+                    if (result) {
+                        allResults.push(result);
+                    }
+                }
+                
+                // Update UI
+                const percentDone = Math.min(i + BATCH_SIZE, symbols.length) / symbols.length;
+                updateProgress(percentDone, `Scanning ${Math.min(i + BATCH_SIZE, symbols.length)} / ${symbols.length} symbols...`);
+                
+                // Render intermediate results
+                if (allResults.length > 0) {
+                    sortTable(); // Re-sort and render
+                } else {
+                     clearTable(`Scanning ${Math.min(i + BATCH_SIZE, symbols.length)} / ${symbols.length}... No matches yet.`);
+                }
+            }
+        }
+
+        /**
+         * Analyzes a single symbol against all conditions
+         * @param {string} symbol - The symbol to analyze
+         * @returns {Promise<object|null>} - Result object or null if no match
+         */
+        async function analyzeSymbol(symbol) {
+            // Fetch kline data
+            const response = await fetch(`${API_BASE_URL}/fapi/v1/klines?symbol=${symbol}&interval=${TIMEFRAME}&limit=${KLINE_LIMIT + 1}`); // +1 to get 21 candles
+            if (!response.ok) throw new Error(`Failed to fetch klines for ${symbol}`);
+            const klines = await response.json();
+
+            if (klines.length < KLINE_LIMIT + 1) {
+                return null; // Not enough data
+            }
+
+            // klines[21] is current, klines[20] is previous
+            const currentCandle = klines[KLINE_LIMIT];
+            const prevCandle = klines[KLINE_LIMIT - 1];
+
+            const [cOpen, cHigh, cLow, cClose, cVol] = [
+                parseFloat(currentCandle[1]),
+                parseFloat(currentCandle[2]),
+                parseFloat(currentCandle[3]),
+                parseFloat(currentCandle[4]),
+                parseFloat(currentCandle[5])
+            ];
+            
+            const [pOpen, pClose, pVol] = [
+                parseFloat(prevCandle[1]),
+                parseFloat(prevCandle[4]),
+                parseFloat(prevCandle[5])
+            ];
+
+            // Condition 1: Volume
+            if (cVol <= (pVol * VOL_MULTIPLIER)) {
+                return null;
+            }
+
+            // Get close prices for BB calculation (last 20, including current)
+            const closes = klines.slice(KLINE_LIMIT - BB_PERIOD + 1, KLINE_LIMIT + 1).map(k => parseFloat(k[4]));
+            const bb = calculateBB(closes, BB_PERIOD);
+            
+            if (!bb) return null; // Not enough data for BB
+
+            // Condition 2: Price/BB Logic
+            const cond2a = (cHigh > bb.upper) && (cClose < bb.upper) && (cClose > bb.middle);
+            const cond2b = (cHigh > bb.middle) && (cClose < bb.middle) && (cClose > bb.lower);
+            const cond2c = (cLow < bb.lower) && (cClose > bb.lower) && (cClose < bb.middle);
+            const cond2d = (cLow < bb.middle) && (cClose > bb.middle) && (cClose < bb.upper);
+
+            if (!(cond2a || cond2b || cond2c || cond2d)) {
+                return null; // Failed BB condition
+            }
+
+            // --- NEW WICK CONDITION ---
+            const upperWick = cHigh - Math.max(cOpen, cClose);
+            const lowerWick = Math.min(cOpen, cClose) - cLow;
+            
+            let wickConditionMet = false;
+            if (cond2a || cond2b) {
+                // (2a or 2b) is true: upper wick > lower wick
+                if (upperWick > lowerWick) {
+                    wickConditionMet = true;
+                }
+            } else if (cond2c || cond2d) {
+                // (2c or 2d) is true: lower wick > upper wick
+                if (lowerWick > upperWick) {
+                    wickConditionMet = true;
+                }
+            }
+
+            if (!wickConditionMet) {
+                return null; // Failed wick condition
+            }
+            // --- END NEW WICK CONDITION ---
+
+
+            // --- All conditions met, calculate output ---
+            
+            // Calculate Ratio
+            let ratio = 0;
+            if (cond2a) {
+                const denominator = (bb.upper - cClose);
+                ratio = (denominator === 0) ? Infinity : (cHigh - bb.upper) / denominator;
+            } else if (cond2b) {
+                const denominator = (bb.middle - cClose);
+                ratio = (denominator === 0) ? Infinity : (cHigh - bb.middle) / denominator;
+            } else if (cond2c) {
+                const denominator = (bb.lower - cLow);
+                ratio = (denominator === 0) ? Infinity : (cClose - bb.lower) / denominator;
+            } else if (cond2d) {
+                const denominator = (bb.middle - cLow);
+                ratio = (denominator === 0) ? Infinity : (cClose - bb.middle) / denominator;
+            }
+
+            // Calculate other fields
+            const closeChg = ((cClose - cOpen) / cOpen) * 100;
+            const volChg = ((cVol - pVol) / pVol) * 100;
+
+            const isCurrentGreen = cClose > cOpen;
+            const isPrevGreen = pClose > pOpen;
+            const sameColor = (isCurrentGreen === isPrevGreen) ? "Yes" : "No";
+
+            return {
+                symbol,
+                closeChg,
+                volChg,
+                sameColor,
+                ratio
+            };
+        }
+
+        /**
+         * Calculates Bollinger Bands
+         * @param {number[]} data - Array of close prices
+         * @param {number} period - BB period
+         * @returns {object|null} - { middle, upper, lower } or null
+         */
+        function calculateBB(data, period) {
+            if (data.length < period) return null;
+            
+            const slice = data.slice(-period);
+            const sum = slice.reduce((a, b) => a + b, 0);
+            const middle = sum / period; // SMA
+
+            const varianceSum = slice.reduce((a, b) => a + Math.pow(b - middle, 2), 0);
+            const stdDev = Math.sqrt(varianceSum / period);
+
+            return {
+                middle: middle,
+                upper: middle + (stdDev * 2),
+                lower: middle - (stdDev * 2)
+            };
+        }
+
+        /**
+         * Renders the results array into the table
+         * @param {object[]} results - Array of result objects to render
+         */
+        function renderTable(results) {
+            if (results.length === 0) {
+                clearTable("No symbols matched all criteria.");
+                return;
+            }
+
+            resultsBody.innerHTML = ''; // Clear existing rows
+            
+            results.forEach(r => {
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-gray-700 transition duration-150';
+
+                const closeChgColor = r.closeChg > 0 ? 'text-green-400' : 'text-red-400';
+                
+                row.innerHTML = `
+                    <td class="px-4 py-3 whitespace-nowrap">
+                        <a href="https://www.binance.com/en/futures/${r.symbol}" target="_blank" rel="noopener noreferrer" class="font-medium text-blue-400 hover:text-blue-300">
+                            ${r.symbol}
+                        </a>
+                    </td>
+                    <td class="px-4 py-3 whitespace-nowrap text-sm ${closeChgColor}">
+                        ${r.closeChg.toFixed(2)}%
+                    </td>
+                    <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-300">
+                        ${r.volChg.toFixed(2)}%
+                    </td>
+                    <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-300">
+                        ${r.sameColor}
+                    </td>
+                    <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-300">
+                        ${isFinite(r.ratio) ? r.ratio.toFixed(2) : 'N/A'}
+                    </td>
+                `;
+                resultsBody.appendChild(row);
+            });
+        }
+
+        /**
+         * Sets up click listeners for table header sorting
+         */
+        function setupSorting() {
+            tableHeaders.forEach(header => {
+                header.addEventListener('click', () => {
+                    const column = header.dataset.column;
+                    
+                    if (currentSort.column === column) {
+                        currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+                    } else {
+                        currentSort.column = column;
+                        currentSort.direction = 'desc'; // Default to descending for new column
+                    }
+                    
+                    sortTable();
+                    updateHeaderArrows();
+                });
+            });
+            // Set initial arrow
+            updateHeaderArrows();
+        }
+
+        /**
+         * Updates the visual arrows in the table headers
+         */
+        function updateHeaderArrows() {
+            tableHeaders.forEach(header => {
+                const arrow = header.querySelector('.sort-arrow');
+                if (header.dataset.column === currentSort.column) {
+                    arrow.textContent = currentSort.direction === 'asc' ? '▲' : '▼';
+                    arrow.style.opacity = '1';
+                } else {
+                    arrow.textContent = '';
+                    arrow.style.opacity = '0.5';
+                }
+            });
+        }
+
+        /**
+         * Sorts the global `allResults` array and re-renders the table
+         */
+        function sortTable() {
+            const { column, direction } = currentSort;
+            const header = document.querySelector(`th[data-column="${column}"]`);
+            const type = header.dataset.type;
+
+            const directionMod = direction === 'asc' ? 1 : -1;
+
+            allResults.sort((a, b) => {
+                const valA = a[column];
+                const valB = b[column];
+
+                if (type === 'numeric') {
+                    return (valA - valB) * directionMod;
+                } else {
+                    // String comparison
+                    return valA.localeCompare(valB) * directionMod;
+                }
+            });
+
+            renderTable(allResults);
+        }
+
+    </script>
+
 </body>
 </html>
