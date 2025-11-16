@@ -65,7 +65,7 @@
 
 <script>
 /* CONFIG */
-const BASE = 'https://corsproxy.io/?https://fapi.binance.com';
+const BASE = 'https://fapi.binance.com';
 const MAX_SYMBOLS = 250;
 const BATCH_SIZE = 5;           // requested: batches of 5 symbols
 const EXCLUDE_TOP = new Set([
@@ -97,7 +97,7 @@ async function fetchJSON(url){
 async function getPerpSymbols(){
   // get 1) exchangeInfo for perps, 2) ticker24hr to score volatility
   const [ei, tick] = await Promise.all([
-    fetchJSON(`${BASE}/exchangeInfo`),
+    fetchJSON(`https://api.binance.com/api/v3/exchangeInfo`),
     fetchJSON(`${BASE}/ticker/24hr`)
   ]);
   const perpSet = new Set((ei.symbols || [])
@@ -302,4 +302,5 @@ window.addEventListener('load', ()=> {
 </script>
 </body>
 </html>
+
 
