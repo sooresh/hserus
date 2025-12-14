@@ -4,518 +4,395 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>hserus</title>
-    <!-- Load Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* Custom scrollbar for dark mode */
-        ::-webkit-scrollbar {
-            width: 8px;
+        :root {
+            --bg: #121212;
+            --card: #1e1e1e;
+            --text: #e0e0e0;
+            --muted: #888;
+            --accent: #2196f3;
+            --green: #00c853;
+            --red: #ff5252;
+            --border: #333;
         }
-        ::-webkit-scrollbar-track {
-            background: #1f2937; /* gray-800 */
+
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+            font-size: 14px;
         }
-        ::-webkit-scrollbar-thumb {
-            background: #4b5563; /* gray-600 */
+
+        .app-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        /* Controls */
+        .controls {
+            background: var(--card);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            margin-bottom: 20px;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        h1 { margin: 0; font-size: 1.5rem; color: var(--accent); }
+
+        button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 10px 24px;
             border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: 0.2s;
         }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #6b7280; /* gray-500 */
+        button:hover { opacity: 0.9; }
+        button:disabled { background: var(--muted); cursor: not-allowed; }
+
+        /* Progress */
+        .progress-wrap {
+            background: #333;
+            height: 6px;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+        .progress-bar {
+            height: 100%;
+            background: var(--green);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .status {
+            text-align: right;
+            font-size: 0.85rem;
+            color: var(--muted);
         }
 
-        /* Style for the progress bar transition */
-        #progress-bar {
-            transition: width 0.3s ease-in-out;
+        /* Table */
+        .table-container {
+            background: var(--card);
+            border-radius: 8px;
+            overflow-x: auto;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
         }
 
-        /* Style for sortable table headers */
-        th.sortable {
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            white-space: nowrap;
+        }
+
+        th, td {
+            padding: 12px 15px;
+            text-align: right;
+            border-bottom: 1px solid var(--border);
+        }
+
+        th {
+            text-align: right;
+            background: #252525;
+            color: var(--muted);
             cursor: pointer;
             user-select: none;
+            font-size: 0.8rem;
+            text-transform: uppercase;
         }
-        th.sortable:hover {
-            background-color: #374151; /* gray-700 */
-        }
-        th .sort-arrow {
-            display: inline-block;
-            width: 1em;
-            text-align: right;
-            opacity: 0.5;
-        }
+        th:first-child, td:first-child { text-align: left; }
+        th:hover { color: var(--text); background: #333; }
+        
+        tr:hover { background: #2a2a2a; }
+
+        .pos { color: var(--green); }
+        .neg { color: var(--red); }
+        .symbol-col { font-weight: bold; color: #fff; }
+        
+        .sort-icon { font-size: 0.7em; margin-left: 4px; }
     </style>
 </head>
-<body class="bg-gray-900 text-gray-200 font-sans p-4 md:p-8">
+<body>
 
-    <div class="max-w-7xl mx-auto">
-        
-        <!-- Header and Refresh Button -->
-        <div class="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
-            <h1 class="text-3xl font-bold text-white">hserus</h1>
-            <button id="refresh-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-lg transition duration-200 shadow-lg flex items-center justify-center">
-                <svg id="refresh-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" class="bi bi-arrow-clockwise mr-2" viewBox="0 0 16 16">
-                    <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
-                    <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
-                </svg>
-                <svg id="loading-spinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                <span id="refresh-text">Refresh</span>
-            </button>
+<div class="app-container">
+    <div class="controls">
+        <div class="header">
+            <h1>hserus</h1>
+            <button id="scanBtn" onclick="runScanner()">Start Scan</button>
         </div>
-
-        <!-- Progress Indicator -->
-        <div id="progress-container" class="w-full bg-gray-700 rounded-full h-4 mb-6 hidden overflow-hidden">
-            <div id="progress-bar" class="bg-blue-500 h-4 rounded-full" style="width: 0%"></div>
+        <div class="progress-wrap">
+            <div id="progressBar" class="progress-bar"></div>
         </div>
-        <div id="progress-text" class="text-center text-gray-400 mb-6 hidden">Scanning...</div>
-
-        <!-- Results Table -->
-        <div class="bg-gray-800 rounded-xl shadow-2xl overflow-hidden">
-            <div class="overflow-x-auto">
-                <table id="scan-results" class="min-w-full divide-y divide-gray-700">
-                    <thead class="bg-gray-700">
-                        <tr>
-                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider sortable" data-column="symbol" data-type="string">
-                                Symbol <span class="sort-arrow"></span>
-                            </th>
-                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider sortable" data-column="closeChg" data-type="numeric">
-                                Close % <span class="sort-arrow"></span>
-                            </th>
-                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider sortable" data-column="volChg" data-type="numeric">
-                                Vol % <span class="sort-arrow"></span>
-                            </th>
-                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider sortable" data-column="sameColor" data-type="string">
-                                Color Match <span class="sort-arrow"></span>
-                            </th>
-                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider sortable" data-column="ratio" data-type="numeric">
-                                Ratio <span class="sort-arrow"></span>
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody id="results-body" class="bg-gray-800 divide-y divide-gray-700">
-                        <!-- Initial message -->
-                        <tr>
-                            <td colspan="5" class="px-4 py-6 text-center text-gray-400">Click "Refresh" to start scanning.</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
+        <div id="statusText" class="status">Ready to scan</div>
     </div>
 
-    <script type="module">
-        // --- Constants ---
-        const API_BASE_URL = "https://fapi.binance.com";
-        const EXCLUDE_LIST = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT'];
-        const TIMEFRAME = '1h';
-        const BB_PERIOD = 20;
-        const KLINE_LIMIT = 21; // 20 for BB + 1 previous candle
-        const VOL_MULTIPLIER = 1.5;
-        const TOP_N_VOLATILE = 250;
-        const BATCH_SIZE = 5; // Process 5 symbols in parallel
+    <div class="table-container">
+        <table id="dataTable">
+            <thead>
+                <tr>
+                    <th onclick="sortData('symbol')">Symbol <span id="s-symbol"></span></th>
+                    <th onclick="sortData('priceChg')">Prev Price% <span id="s-priceChg"></span></th>
+                    <th onclick="sortData('volChg')">Prev Vol% <span id="s-volChg"></span></th>
+                    <th onclick="sortData('posRatioChg')">Pos Ratio% <span id="s-posRatioChg"></span></th>
+                    <th onclick="sortData('accRatioChg')">Acc Ratio% <span id="s-accRatioChg"></span></th>
+                    <th onclick="sortData('smartRatioChg')">Div Ratio% <span id="s-smartRatioChg"></span></th>
+                </tr>
+            </thead>
+            <tbody id="tableBody">
+                </tbody>
+        </table>
+    </div>
+</div>
 
-        // --- DOM Elements ---
-        const refreshBtn = document.getElementById('refresh-btn');
-        const refreshText = document.getElementById('refresh-text');
-        const refreshIcon = document.getElementById('refresh-icon');
-        const loadingSpinner = document.getElementById('loading-spinner');
-        
-        const progressContainer = document.getElementById('progress-container');
-        const progressBar = document.getElementById('progress-bar');
-        const progressText = document.getElementById('progress-text');
-        
-        const resultsBody = document.getElementById('results-body');
-        const tableHeaders = document.querySelectorAll('#scan-results th.sortable');
+<script>
+    // --- Config ---
+    const BASE_URL = 'https://fapi.binance.com';
+    // Major caps to exclude
+    const EXCLUDE = [
+        'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'USDCUSDT', 
+        'DOGEUSDT', 'AVAXUSDT', 'TRXUSDT', 'DOTUSDT', 'LINKUSDT', 'MATICUSDT', 'LTCUSDT', 
+        'BCHUSDT', 'UNIUSDT'
+    ];
+    const BATCH_SIZE = 5;
 
-        // --- App State ---
-        let allResults = [];
-        let currentSort = {
-            column: 'volChg',
-            direction: 'desc'
-        };
+    // --- State ---
+    let tableData = [];
+    let isScanning = false;
+    let sortCol = 'volChg';
+    let sortAsc = false;
 
-        // --- Event Listeners ---
-        refreshBtn.addEventListener('click', startScan);
-        document.addEventListener('DOMContentLoaded', setupSorting);
+    // --- DOM ---
+    const btn = document.getElementById('scanBtn');
+    const pBar = document.getElementById('progressBar');
+    const pText = document.getElementById('statusText');
+    const tBody = document.getElementById('tableBody');
 
-        /**
-         * Main function to start the scanning process
-         */
-        async function startScan() {
-            setLoadingState(true);
-            clearTable("Scanning... Please wait.");
-            allResults = [];
+    // --- Main Logic ---
+
+    async function runScanner() {
+        if (isScanning) return;
+        isScanning = true;
+        btn.disabled = true;
+        btn.textContent = "Scanning...";
+        tableData = [];
+        renderTable();
+        pBar.style.width = '0%';
+
+        try {
+            pText.textContent = "Fetching Market Data...";
             
-            try {
-                // Step 1: Get top volatile symbols
-                updateProgress(0, `Fetching ${TOP_N_VOLATILE} most volatile symbols...`);
-                const symbols = await getTopVolatileSymbols();
-                if (symbols.length === 0) {
-                    clearTable("No volatile symbols found matching criteria.");
-                    setLoadingState(false);
-                    return;
-                }
+            // 1. Get 24hr Ticker to filter top volatility
+            const tickers = await fetchJSON(`${BASE_URL}/fapi/v1/ticker/24hr`);
+            
+            // Filter: USDT only, exclude majors
+            let candidates = tickers.filter(t => 
+                t.symbol.endsWith('USDT') && !EXCLUDE.includes(t.symbol)
+            );
+
+            // Calculate Volatility: (High - Low) / Low
+            candidates.forEach(c => {
+                c.volatility = (parseFloat(c.highPrice) - parseFloat(c.lowPrice)) / parseFloat(c.lowPrice);
+            });
+
+            // Sort by volatility DESC and take top 250
+            candidates.sort((a, b) => b.volatility - a.volatility);
+            const targets = candidates.slice(0, 250).map(c => c.symbol);
+
+            // 2. Process Batches
+            let completed = 0;
+            pText.textContent = `Scanning ${targets.length} symbols...`;
+
+            for (let i = 0; i < targets.length; i += BATCH_SIZE) {
+                const batch = targets.slice(i, i + BATCH_SIZE);
                 
-                // Step 2: Process symbols in batches
-                await processSymbolsInBatches(symbols);
-
-                // Step 3: Final render and sort
-                if (allResults.length === 0) {
-                    clearTable("Scan complete. No symbols matched all criteria.");
-                } else {
-                    sortTable(); // Apply default sort
-                }
+                // Parallel execution for the batch
+                const results = await Promise.all(batch.map(processSymbol));
                 
-                updateProgress(1, `Scan complete. Found ${allResults.length} matching symbols.`);
+                // Add valid results
+                results.forEach(res => {
+                    if (res) tableData.push(res);
+                });
 
-            } catch (error) {
-                console.error("Scan failed:", error);
-                clearTable(`Error: ${error.message}. Check console for details.`);
-            } finally {
-                setLoadingState(false);
-            }
-        }
-
-        /**
-         * Sets the loading state of the UI
-         * @param {boolean} isLoading - Whether to show loading state
-         */
-        function setLoadingState(isLoading) {
-            if (isLoading) {
-                refreshBtn.disabled = true;
-                refreshText.textContent = 'Scanning...';
-                refreshIcon.classList.add('hidden');
-                loadingSpinner.classList.remove('hidden');
-                progressContainer.classList.remove('hidden');
-                progressText.classList.remove('hidden');
-            } else {
-                refreshBtn.disabled = false;
-                refreshText.textContent = 'Refresh';
-                refreshIcon.classList.remove('hidden');
-                loadingSpinner.classList.add('hidden');
-            }
-        }
-
-        /**
-         * Clears the results table with an optional message
-         * @param {string} message - Message to display in the empty table
-         */
-        function clearTable(message) {
-            resultsBody.innerHTML = `<tr><td colspan="5" class="px-4 py-6 text-center text-gray-400">${message}</td></tr>`;
-        }
-
-        /**
-         * Updates the progress bar and text
-         * @param {number} percent - Progress percentage (0 to 1)
-         * @param {string} text - Text to display below the bar
-         */
-        function updateProgress(percent, text) {
-            progressBar.style.width = `${percent * 100}%`;
-            progressText.textContent = text;
-        }
-
-        /**
-         * Fetches all USDT perpetual symbols and returns the top N volatile ones
-         * @returns {Promise<string[]>} - Array of symbol strings
-         */
-        async function getTopVolatileSymbols() {
-            try {
-                // Get 24h ticker data
-                const response = await fetch(`${API_BASE_URL}/fapi/v1/ticker/24hr`);
-                if (!response.ok) throw new Error(`Binance API error: ${response.statusText}`);
-                const tickers = await response.json();
-
-                // Filter, sort, and slice
-                const volatileSymbols = tickers
-                    .filter(t => t.symbol.endsWith('USDT') && !EXCLUDE_LIST.includes(t.symbol))
-                    .sort((a, b) => Math.abs(b.priceChangePercent) - Math.abs(a.priceChangePercent))
-                    .slice(0, TOP_N_VOLATILE)
-                    .map(t => t.symbol);
-                
-                return volatileSymbols;
-            } catch (error) {
-                console.error("Failed to get top volatile symbols:", error);
-                throw new Error("Failed to fetch symbol list from Binance.");
-            }
-        }
-
-        /**
-         * Processes an array of symbols in parallel batches
-         * @param {string[]} symbols - Array of symbols to process
-         */
-        async function processSymbolsInBatches(symbols) {
-            for (let i = 0; i < symbols.length; i += BATCH_SIZE) {
-                const batch = symbols.slice(i, i + BATCH_SIZE);
-                
-                const promises = batch.map(symbol => analyzeSymbol(symbol).catch(e => {
-                    console.warn(`Failed to analyze ${symbol}:`, e.message);
-                    return null; // Don't let one failed symbol stop the batch
-                }));
-                
-                const batchResults = await Promise.all(promises);
-                
-                // Add valid results to the main list
-                for (const result of batchResults) {
-                    if (result) {
-                        allResults.push(result);
-                    }
-                }
-                
                 // Update UI
-                const percentDone = Math.min(i + BATCH_SIZE, symbols.length) / symbols.length;
-                updateProgress(percentDone, `Scanning ${Math.min(i + BATCH_SIZE, symbols.length)} / ${symbols.length} symbols...`);
-                
-                // Render intermediate results
-                if (allResults.length > 0) {
-                    sortTable(); // Re-sort and render
-                } else {
-                     clearTable(`Scanning ${Math.min(i + BATCH_SIZE, symbols.length)} / ${symbols.length}... No matches yet.`);
-                }
+                completed += batch.length;
+                const pct = (completed / targets.length) * 100;
+                pBar.style.width = `${pct}%`;
+                pText.textContent = `${completed}/${targets.length} scanned. Found ${tableData.length} matches.`;
+
+                if (i % 20 === 0) renderTable(); // Refresh table occasionally
+
+                // Rate limit handling (sleep 100ms between batches)
+                await sleep(100);
             }
+
+        } catch (err) {
+            console.error(err);
+            alert("Error: " + err.message + "\n\n(If fetching fails, check Console or use a CORS extension)");
+        } finally {
+            isScanning = false;
+            btn.disabled = false;
+            btn.textContent = "Refresh";
+            sortData(sortCol); // Final sort
         }
+    }
 
-        /**
-         * Analyzes a single symbol against all conditions
-         * @param {string} symbol - The symbol to analyze
-         * @returns {Promise<object|null>} - Result object or null if no match
-         */
-        async function analyzeSymbol(symbol) {
-            // Fetch kline data
-            const response = await fetch(`${API_BASE_URL}/fapi/v1/klines?symbol=${symbol}&interval=${TIMEFRAME}&limit=${KLINE_LIMIT + 1}`); // +1 to get 21 candles
-            if (!response.ok) throw new Error(`Failed to fetch klines for ${symbol}`);
-            const klines = await response.json();
+    async function processSymbol(symbol) {
+        try {
+            // STEP A: Fetch Klines (Lightweight)
+            // Limit 4: [..., PPrev, Prev, Curr]
+            const klines = await fetchJSON(`${BASE_URL}/fapi/v1/klines?symbol=${symbol}&interval=1h&limit=4`);
+            if (klines.length < 3) return null;
 
-            if (klines.length < KLINE_LIMIT + 1) {
-                return null; // Not enough data
-            }
+            // Klines: [Open, High, Low, Close, Volume, ...]
+            // Last index is "Current" (incomplete candle). Last-1 is "Prev" (complete).
+            const currK = parseKline(klines[klines.length - 1]);
+            const prevK = parseKline(klines[klines.length - 2]);
+            const pprevK = parseKline(klines[klines.length - 3]);
 
-            // klines[21] is current, klines[20] is previous
-            const currentCandle = klines[KLINE_LIMIT];
-            const prevCandle = klines[KLINE_LIMIT - 1];
+            // CONDITION (1): Previous Volume > Prev Prev Volume
+            if (prevK.vol <= pprevK.vol) return null;
 
-            const [cOpen, cHigh, cLow, cClose, cVol] = [
-                parseFloat(currentCandle[1]),
-                parseFloat(currentCandle[2]),
-                parseFloat(currentCandle[3]),
-                parseFloat(currentCandle[4]),
-                parseFloat(currentCandle[5])
-            ];
+            // STEP B: Fetch L/S Ratios (Heavy - only fetch if Step A passed)
+            // We need Position Ratio AND Account Ratio
+            const [posData, accData] = await Promise.all([
+                fetchJSON(`${BASE_URL}/fapi/v1/topLongShortPositionRatio?symbol=${symbol}&period=1h&limit=2`),
+                fetchJSON(`${BASE_URL}/fapi/v1/topLongShortAccountRatio?symbol=${symbol}&period=1h&limit=2`)
+            ]);
+
+            if (posData.length < 2 || accData.length < 2) return null;
+
+            // Ratio Data: index 0 = Previous, index 1 = Current (usually)
+            // Note: API returns chronological order. Last is current.
+            const posCurr = parseFloat(posData[1].longShortRatio);
+            const posPrev = parseFloat(posData[0].longShortRatio);
             
-            const [pOpen, pClose, pVol] = [
-                parseFloat(prevCandle[1]),
-                parseFloat(prevCandle[4]),
-                parseFloat(prevCandle[5])
-            ];
+            const accCurr = parseFloat(accData[1].longShortRatio);
+            const accPrev = parseFloat(accData[0].longShortRatio);
 
-            // Condition 1: Volume
-            if (cVol <= (pVol * VOL_MULTIPLIER)) {
-                return null;
-            }
+            // --- Calculations ---
 
-            // Get close prices for BB calculation (last 20, including current)
-            const closes = klines.slice(KLINE_LIMIT - BB_PERIOD + 1, KLINE_LIMIT + 1).map(k => parseFloat(k[4]));
-            const bb = calculateBB(closes, BB_PERIOD);
-            
-            if (!bb) return null; // Not enough data for BB
+            // 1. Prev Price Chg % (Prev Close vs PrevPrev Close)
+            const priceChg = ((prevK.close - pprevK.close) / pprevK.close) * 100;
 
-            // Condition 2: Price/BB Logic
-            const cond2a = (cHigh > bb.upper) && (cClose < bb.upper) && (cClose > bb.middle);
-            const cond2b = (cHigh > bb.middle) && (cClose < bb.middle) && (cClose > bb.lower);
-            const cond2c = (cLow < bb.lower) && (cClose > bb.lower) && (cClose < bb.middle);
-            const cond2d = (cLow < bb.middle) && (cClose > bb.middle) && (cClose < bb.upper);
+            // 2. Prev Vol Chg %
+            const volChg = ((prevK.vol - pprevK.vol) / pprevK.vol) * 100;
 
-            if (!(cond2a || cond2b || cond2c || cond2d)) {
-                return null; // Failed BB condition
-            }
+            // 3. Pos Ratio Chg % (Current vs Prev)
+            const posChg = ((posCurr - posPrev) / posPrev) * 100;
 
-            // --- NEW WICK CONDITION ---
-            const upperWick = cHigh - Math.max(cOpen, cClose);
-            const lowerWick = Math.min(cOpen, cClose) - cLow;
-            
-            let wickConditionMet = false;
-            if (cond2a || cond2b) {
-                // (2a or 2b) is true: upper wick > lower wick
-                if (upperWick > lowerWick) {
-                    wickConditionMet = true;
-                }
-            } else if (cond2c || cond2d) {
-                // (2c or 2d) is true: lower wick > upper wick
-                if (lowerWick > upperWick) {
-                    wickConditionMet = true;
-                }
-            }
+            // 4. Acc Ratio Chg % (Current vs Prev)
+            const accChg = ((accCurr - accPrev) / accPrev) * 100;
 
-            if (!wickConditionMet) {
-                return null; // Failed wick condition
-            }
-            // --- END NEW WICK CONDITION ---
-
-
-            // --- All conditions met, calculate output ---
-            
-            // Calculate Ratio
-            let ratio = 0;
-            if (cond2a) {
-                const denominator = (bb.upper - cClose);
-                ratio = (denominator === 0) ? Infinity : (cHigh - bb.upper) / denominator;
-            } else if (cond2b) {
-                const denominator = (bb.middle - cClose);
-                ratio = (denominator === 0) ? Infinity : (cHigh - bb.middle) / denominator;
-            } else if (cond2c) {
-                const denominator = (bb.lower - cLow);
-                ratio = (denominator === 0) ? Infinity : (cClose - bb.lower) / denominator;
-            } else if (cond2d) {
-                const denominator = (bb.middle - cLow);
-                ratio = (denominator === 0) ? Infinity : (cClose - bb.middle) / denominator;
-            }
-
-            // Calculate other fields
-            const closeChg = ((cClose - cOpen) / cOpen) * 100;
-            const volChg = ((cVol - pVol) / pVol) * 100;
-
-            const isCurrentGreen = cClose > cOpen;
-            const isPrevGreen = pClose > pOpen;
-            const sameColor = (isCurrentGreen === isPrevGreen) ? "Yes" : "No";
+            // 5. Ratio of Ratios (Smart Money Divergence)
+            // Ratio = Account / Position
+            const ratioCurr = accCurr / posCurr;
+            const ratioPrev = accPrev / posPrev;
+            const smartRatioChg = ((ratioCurr - ratioPrev) / ratioPrev) * 100;
 
             return {
                 symbol,
-                closeChg,
+                priceChg,
                 volChg,
-                sameColor,
-                ratio
+                posRatioChg: posChg,
+                accRatioChg: accChg,
+                smartRatioChg
             };
+
+        } catch (e) {
+            return null; // Ignore errors for single symbols
         }
+    }
 
-        /**
-         * Calculates Bollinger Bands
-         * @param {number[]} data - Array of close prices
-         * @param {number} period - BB period
-         * @returns {object|null} - { middle, upper, lower } or null
-         */
-        function calculateBB(data, period) {
-            if (data.length < period) return null;
-            
-            const slice = data.slice(-period);
-            const sum = slice.reduce((a, b) => a + b, 0);
-            const middle = sum / period; // SMA
+    // --- Helpers ---
 
-            const varianceSum = slice.reduce((a, b) => a + Math.pow(b - middle, 2), 0);
-            const stdDev = Math.sqrt(varianceSum / period);
+    async function fetchJSON(url) {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return await res.json();
+    }
 
-            return {
-                middle: middle,
-                upper: middle + (stdDev * 2),
-                lower: middle - (stdDev * 2)
-            };
+    function parseKline(k) {
+        return {
+            open: parseFloat(k[1]),
+            close: parseFloat(k[4]),
+            vol: parseFloat(k[5])
+        };
+    }
+
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+    function fmtPct(val) {
+        const sign = val > 0 ? '+' : '';
+        return `${sign}${val.toFixed(2)}%`;
+    }
+
+    function getColorClass(val) {
+        return val >= 0 ? 'pos' : 'neg';
+    }
+
+    // --- Sorting & Rendering ---
+
+    function sortData(key) {
+        if (sortCol === key) {
+            sortAsc = !sortAsc;
+        } else {
+            sortCol = key;
+            sortAsc = false; // Default desc for new col
         }
+        
+        // Update Icons
+        document.querySelectorAll('th span').forEach(s => s.textContent = '');
+        document.getElementById(`s-${key}`).textContent = sortAsc ? '▲' : '▼';
 
-        /**
-         * Renders the results array into the table
-         * @param {object[]} results - Array of result objects to render
-         */
-        function renderTable(results) {
-            if (results.length === 0) {
-                clearTable("No symbols matched all criteria.");
-                return;
+        // Sort
+        tableData.sort((a, b) => {
+            let valA = a[key];
+            let valB = b[key];
+            if (typeof valA === 'string') {
+                return sortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
             }
+            return sortAsc ? valA - valB : valB - valA;
+        });
 
-            resultsBody.innerHTML = ''; // Clear existing rows
+        renderTable();
+    }
+
+    function renderTable() {
+        tBody.innerHTML = '';
+        
+        if (tableData.length === 0 && !isScanning) {
+            tBody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px;">No Data / Start Scan</td></tr>';
+            return;
+        }
+
+        tableData.forEach(row => {
+            const tr = document.createElement('tr');
             
-            results.forEach(r => {
-                const row = document.createElement('tr');
-                row.className = 'hover:bg-gray-700 transition duration-150';
+            const html = `
+                <td class="symbol-col">${row.symbol}</td>
+                <td class="${getColorClass(row.priceChg)}">${fmtPct(row.priceChg)}</td>
+                <td class="${getColorClass(row.volChg)}">${fmtPct(row.volChg)}</td>
+                <td class="${getColorClass(row.posRatioChg)}">${fmtPct(row.posRatioChg)}</td>
+                <td class="${getColorClass(row.accRatioChg)}">${fmtPct(row.accRatioChg)}</td>
+                <td class="${getColorClass(row.smartRatioChg)}">${fmtPct(row.smartRatioChg)}</td>
+            `;
+            
+            tr.innerHTML = html;
+            tBody.appendChild(tr);
+        });
+    }
 
-                const closeChgColor = r.closeChg > 0 ? 'text-green-400' : 'text-red-400';
-                
-                row.innerHTML = `
-                    <td class="px-4 py-3 whitespace-nowrap">
-                        <a href="https://www.binance.com/en/futures/${r.symbol}" target="_blank" rel="noopener noreferrer" class="font-medium text-blue-400 hover:text-blue-300">
-                            ${r.symbol}
-                        </a>
-                    </td>
-                    <td class="px-4 py-3 whitespace-nowrap text-sm ${closeChgColor}">
-                        ${r.closeChg.toFixed(2)}%
-                    </td>
-                    <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-300">
-                        ${r.volChg.toFixed(2)}%
-                    </td>
-                    <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-300">
-                        ${r.sameColor}
-                    </td>
-                    <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-300">
-                        ${isFinite(r.ratio) ? r.ratio.toFixed(2) : 'N/A'}
-                    </td>
-                `;
-                resultsBody.appendChild(row);
-            });
-        }
-
-        /**
-         * Sets up click listeners for table header sorting
-         */
-        function setupSorting() {
-            tableHeaders.forEach(header => {
-                header.addEventListener('click', () => {
-                    const column = header.dataset.column;
-                    
-                    if (currentSort.column === column) {
-                        currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
-                    } else {
-                        currentSort.column = column;
-                        currentSort.direction = 'desc'; // Default to descending for new column
-                    }
-                    
-                    sortTable();
-                    updateHeaderArrows();
-                });
-            });
-            // Set initial arrow
-            updateHeaderArrows();
-        }
-
-        /**
-         * Updates the visual arrows in the table headers
-         */
-        function updateHeaderArrows() {
-            tableHeaders.forEach(header => {
-                const arrow = header.querySelector('.sort-arrow');
-                if (header.dataset.column === currentSort.column) {
-                    arrow.textContent = currentSort.direction === 'asc' ? '▲' : '▼';
-                    arrow.style.opacity = '1';
-                } else {
-                    arrow.textContent = '';
-                    arrow.style.opacity = '0.5';
-                }
-            });
-        }
-
-        /**
-         * Sorts the global `allResults` array and re-renders the table
-         */
-        function sortTable() {
-            const { column, direction } = currentSort;
-            const header = document.querySelector(`th[data-column="${column}"]`);
-            const type = header.dataset.type;
-
-            const directionMod = direction === 'asc' ? 1 : -1;
-
-            allResults.sort((a, b) => {
-                const valA = a[column];
-                const valB = b[column];
-
-                if (type === 'numeric') {
-                    return (valA - valB) * directionMod;
-                } else {
-                    // String comparison
-                    return valA.localeCompare(valB) * directionMod;
-                }
-            });
-
-            renderTable(allResults);
-        }
-
-    </script>
+</script>
 
 </body>
 </html>
