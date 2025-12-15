@@ -39,20 +39,30 @@ th{background:#131b30;cursor:pointer}
 
 <script>
 const FAPI = 'https://fapi.binance.com';
-const SPOT = 'https://api.binance.com';
 const BATCH = 5;
 
 const EXCLUDE = new Set([
- 'BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','ADAUSDT','DOGEUSDT',
- 'AVAXUSDT','DOTUSDT','LINKUSDT','TRXUSDT','LTCUSDT','MATICUSDT'
+ 'BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','ADAUSDT',
+ 'DOGEUSDT','AVAXUSDT','DOTUSDT','LINKUSDT','TRXUSDT'
 ]);
 
-async function j(url){const r=await fetch(url); if(!r.ok) throw url; return r.json();}
+async function j(url){
+ try{
+  const r = await fetch(url);
+  if(!r.ok) throw new Error(r.status);
+  return await r.json();
+ }catch(e){
+  console.warn('Fetch failed:',url);
+  return null;
+ }
+}
+
 const pct=(a,b)=>((a-b)/b)*100;
 const color=(o,c)=>c>o?'green':c<o?'red':'doji';
 
 async function getSymbols(){
- const t=await j(`${FAPI}/ticker/24hr`);
+ const t = await j(`${FAPI}/ticker/24hr`);
+ if(!t) return [];
  return t.filter(x=>x.symbol.endsWith('USDT')&&!EXCLUDE.has(x.symbol))
   .map(x=>({s:x.symbol,score:Math.abs(x.priceChangePercent)*x.quoteVolume}))
   .sort((a,b)=>b.score-a.score)
@@ -60,36 +70,48 @@ async function getSymbols(){
   .map(x=>x.s);
 }
 
-async function kl(symbol,tf,n=3){
- return j(`${FAPI}/klines?symbol=${symbol}&interval=${tf}&limit=${n}`);
+async function kl(symbol,tf,n){
+ return await j(`${FAPI}/klines?symbol=${symbol}&interval=${tf}&limit=${n}`);
 }
 
-async function lsr(symbol,tf){
- return j(`${FAPI}/futures/data/topLongShortAccountRatio?symbol=${symbol}&period=${tf}&limit=2`);
+async function lsr(symbol){
+ const d = await j(`${FAPI}/futures/data/topLongShortAccountRatio?symbol=${symbol}&period=1h&limit=2`);
+ return d && d.length===2 ? d : null;
 }
 
 async function scanSymbol(sym){
- const [k1h,k4h]=await Promise.all([kl(sym,'1h',2),kl(sym,'4h',3)]);
- const c1=k1h[1], p1=k1h[0];
- const p4=k4h[1], pp4=k4h[0];
+ try{
+  const [k1h,k4h] = await Promise.all([
+   kl(sym,'1h',2),
+   kl(sym,'4h',3)
+  ]);
+  if(!k1h||!k4h) return null;
 
- if(Number(c1[5])<=Number(p1[5])) return null;
- if(Number(p4[5])<=Number(pp4[5])) return null;
+  const c1=k1h[1], p1=k1h[0];
+  const p4=k4h[1], pp4=k4h[0];
 
- const col1=color(c1[1],c1[4]);
- const col4=color(p4[1],p4[4]);
- if(col1!==col4) return null;
+  if(+c1[5] <= +p1[5]) return null;
+  if(+p4[5] <= +pp4[5]) return null;
 
- const ls=await lsr(sym,'1h');
- if(ls.length<2) return null;
+  const col1=color(c1[1],c1[4]);
+  const col4=color(p4[1],p4[4]);
+  if(col1!==col4) return null;
 
- return {
-  symbol:sym,
-  closePct:pct(c1[4],c1[1]),
-  volPct:pct(c1[5],p1[5]),
-  same4h:color(pp4[1],pp4[4])===col4?'Yes':'No',
-  lsDiff:Number(ls[1].longAccount)-Number(ls[0].longAccount)
- };
+  let lsDiff=0;
+  const ls = await lsr(sym);
+  if(ls) lsDiff = +ls[1].longAccount - +ls[0].longAccount;
+
+  return {
+   symbol:sym,
+   closePct:pct(c1[4],c1[1]),
+   volPct:pct(c1[5],p1[5]),
+   same4h:color(pp4[1],pp4[4])===col4?'Yes':'No',
+   lsDiff
+  };
+ }catch(e){
+  console.warn('Symbol failed:',sym);
+  return null;
+ }
 }
 
 let sort={k:null,asc:true};
@@ -108,11 +130,21 @@ document.querySelectorAll('th').forEach(th=>{
 });
 
 async function startScan(){
- tbody.innerHTML=''; bar.style.width='0%';
- const syms=await getSymbols(); let done=0;
+ tbody.innerHTML='';
+ bar.style.width='0%';
+ status.textContent='Preparing scan...';
+
+ const syms = await getSymbols();
+ if(!syms.length){
+  status.textContent='Failed to load symbols';
+  return;
+ }
+
+ let done=0;
  for(let i=0;i<syms.length;i+=BATCH){
   const batch=syms.slice(i,i+BATCH);
   const res=await Promise.all(batch.map(scanSymbol));
+
   res.filter(Boolean).forEach(r=>{
    const tr=document.createElement('tr');
    tr.dataset.symbol=r.symbol;
@@ -128,11 +160,13 @@ async function startScan(){
     <td>${r.lsDiff.toFixed(2)}</td>`;
    tbody.appendChild(tr);
   });
+
   done+=batch.length;
   bar.style.width=(done/syms.length*100)+'%';
   status.textContent=`Scanning ${done}/${syms.length}`;
   await new Promise(r=>setTimeout(r,120));
  }
+
  status.textContent='Scan complete';
 }
 </script>
