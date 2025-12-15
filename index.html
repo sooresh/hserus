@@ -1,345 +1,140 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>hserus</title>
-    <style>
-        :root {
-            --bg: #121212;
-            --card: #1e1e1e;
-            --text: #e0e0e0;
-            --muted: #666;
-            --accent: #ff9800;
-            --green: #00e676;
-            --red: #ff1744;
-            --border: #333;
-        }
+<meta charset="UTF-8">
+<title>hserus</title>
 
-        body {
-            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            background-color: var(--bg);
-            color: var(--text);
-            margin: 0;
-            padding: 20px;
-            font-size: 13px;
-        }
-
-        .app-container { max-width: 1200px; margin: 0 auto; }
-
-        /* Controls */
-        .controls {
-            background: var(--card);
-            padding: 15px 20px;
-            border-radius: 8px;
-            border: 1px solid var(--border);
-            margin-bottom: 20px;
-        }
-
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-        h1 { margin: 0; font-size: 1.4rem; color: var(--accent); }
-
-        button {
-            background: var(--accent);
-            color: black;
-            border: none;
-            padding: 8px 20px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-weight: 600;
-        }
-        button:hover { filter: brightness(1.1); }
-        button:disabled { background: var(--muted); cursor: not-allowed; }
-
-        /* Progress */
-        .progress-wrap { background: #333; height: 4px; border-radius: 2px; overflow: hidden; margin-top: 10px; }
-        .progress-bar { height: 100%; background: var(--green); width: 0%; transition: width 0.2s; }
-        .status { text-align: right; font-size: 0.8rem; color: var(--muted); margin-top: 5px; }
-
-        /* Table */
-        .table-container {
-            background: var(--card);
-            border-radius: 8px;
-            overflow-x: auto;
-            border: 1px solid var(--border);
-        }
-        table { width: 100%; border-collapse: collapse; white-space: nowrap; }
-        th, td { padding: 10px 12px; text-align: right; border-bottom: 1px solid var(--border); }
-        th { text-align: right; background: #252525; color: #999; cursor: pointer; user-select: none; font-size: 0.75rem; text-transform: uppercase; }
-        th:first-child, td:first-child { text-align: left; }
-        th:hover { color: #fff; background: #333; }
-        tr:hover { background: #2a2a2a; }
-
-        .pos { color: var(--green); }
-        .neg { color: var(--red); }
-        .na { color: var(--muted); font-style: italic; }
-        .symbol-col { font-weight: bold; color: #fff; font-size: 0.9rem; }
-    </style>
+<style>
+body{background:#0b1220;color:#e8f1ff;font-family:Arial;padding:16px}
+button{padding:8px 14px;font-size:15px;cursor:pointer}
+table{width:100%;border-collapse:collapse;margin-top:14px}
+th,td{padding:8px;border-bottom:1px solid #233;text-align:center}
+th{background:#131b30;cursor:pointer}
+.green{color:#4cd964}
+.red{color:#ff5b5b}
+#progressBox{margin-top:10px;background:#222;height:18px;border-radius:8px;overflow:hidden}
+#bar{height:100%;width:0%;background:#4cd964;transition:.25s}
+.small{font-size:13px;color:#9fb}
+</style>
 </head>
+
 <body>
 
-<div class="app-container">
-    <div class="controls">
-        <div class="header">
-            <h1>hserus</h1>
-            <button id="scanBtn" onclick="runScanner()">Start Scan</button>
-        </div>
-        <div class="progress-wrap"><div id="progressBar" class="progress-bar"></div></div>
-        <div id="statusText" class="status">Ready</div>
-        <div style="font-size: 0.8rem; color: #ffeb3b;">hserus</div>
-    </div>
+<button onclick="startScan()">Refresh</button>
+<div id="status" class="small">Idle</div>
+<div id="progressBox"><div id="bar"></div></div>
 
-    <div class="table-container">
-        <table id="dataTable">
-            <thead>
-                <tr>
-                    <th onclick="sortData('symbol')">Symbol <span id="s-symbol"></span></th>
-                    <th onclick="sortData('priceChg')">Prev Price % <span id="s-priceChg"></span></th>
-                    <th onclick="sortData('volChg')">Prev Vol % <span id="s-volChg">▼</span></th>
-                    <th onclick="sortData('posRatioChg')">Pos Ratio % <span id="s-posRatioChg"></span></th>
-                    <th onclick="sortData('accRatioChg')">Acc Ratio % <span id="s-accRatioChg"></span></th>
-                    <th onclick="sortData('smartRatioChg')">Div Ratio % <span id="s-smartRatioChg"></span></th>
-                </tr>
-            </thead>
-            <tbody id="tableBody"></tbody>
-        </table>
-    </div>
-</div>
+<table>
+<thead>
+<tr>
+<th data-k="symbol">Symbol</th>
+<th data-k="closePct">Close %</th>
+<th data-k="volPct">Vol %</th>
+<th data-k="same4h">4h Same</th>
+<th data-k="lsDiff">Δ Long</th>
+</tr>
+</thead>
+<tbody id="tbody"></tbody>
+</table>
 
 <script>
-    const BASE_URL = 'https://fapi.binance.com';
-    const EXCLUDE = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'USDCUSDT', 'DOGEUSDT'];
-    const BATCH_SIZE = 5;
+const FAPI = 'https://fapi.binance.com';
+const SPOT = 'https://api.binance.com';
+const BATCH = 5;
 
-    let tableData = [];
-    let isScanning = false;
-    let sortCol = 'volChg';
-    let sortAsc = false;
+const EXCLUDE = new Set([
+ 'BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','ADAUSDT','DOGEUSDT',
+ 'AVAXUSDT','DOTUSDT','LINKUSDT','TRXUSDT','LTCUSDT','MATICUSDT'
+]);
 
-    // DOM
-    const btn = document.getElementById('scanBtn');
-    const pBar = document.getElementById('progressBar');
-    const pText = document.getElementById('statusText');
-    const tBody = document.getElementById('tableBody');
+async function j(url){const r=await fetch(url); if(!r.ok) throw url; return r.json();}
+const pct=(a,b)=>((a-b)/b)*100;
+const color=(o,c)=>c>o?'green':c<o?'red':'doji';
 
-    async function runScanner() {
-        if (isScanning) return;
-        isScanning = true;
-        btn.disabled = true;
-        btn.textContent = "Scanning...";
-        tableData = [];
-        renderTable();
-        
-        try {
-            pText.textContent = "Fetching Tickers...";
-            const tickers = await fetchJSON(`${BASE_URL}/fapi/v1/ticker/24hr`);
-            
-            let candidates = tickers.filter(t => t.symbol.endsWith('USDT') && !EXCLUDE.includes(t.symbol));
-            candidates.forEach(c => c.volatility = (parseFloat(c.highPrice) - parseFloat(c.lowPrice)) / parseFloat(c.lowPrice));
-            candidates.sort((a, b) => b.volatility - a.volatility);
-            const targets = candidates.slice(0, 250).map(c => c.symbol);
+async function getSymbols(){
+ const t=await j(`${FAPI}/ticker/24hr`);
+ return t.filter(x=>x.symbol.endsWith('USDT')&&!EXCLUDE.has(x.symbol))
+  .map(x=>({s:x.symbol,score:Math.abs(x.priceChangePercent)*x.quoteVolume}))
+  .sort((a,b)=>b.score-a.score)
+  .slice(0,250)
+  .map(x=>x.s);
+}
 
-            // Scan Batches
-            let completed = 0;
-            for (let i = 0; i < targets.length; i += BATCH_SIZE) {
-                const batch = targets.slice(i, i + BATCH_SIZE);
-                // CRITICAL: We now use Promise.allSettled to ensure one failure doesn't stop the whole batch
-                const results = await Promise.allSettled(batch.map(processSymbol)); 
-                
-                results.forEach(res => { 
-                    if (res.status === 'fulfilled' && res.value) tableData.push(res.value); 
-                });
+async function kl(symbol,tf,n=3){
+ return j(`${FAPI}/klines?symbol=${symbol}&interval=${tf}&limit=${n}`);
+}
 
-                completed += batch.length;
-                pBar.style.width = `${(completed / targets.length) * 100}%`;
-                pText.textContent = `Scanned ${completed}/${targets.length} | Matches: ${tableData.length}`;
-                
-                if (i % 10 === 0) renderTable();
-                
-                // CRITICAL: Increased delay significantly to reduce rate limits
-                await sleep(500); 
-            }
+async function lsr(symbol,tf){
+ return j(`${FAPI}/futures/data/topLongShortAccountRatio?symbol=${symbol}&period=${tf}&limit=2`);
+}
 
-        } catch (err) {
-            console.error("Fatal Scan Error:", err);
-            alert("Scan stopped: Check Console for fatal error.");
-        } finally {
-            isScanning = false;
-            btn.disabled = false;
-            btn.textContent = "Refresh";
-            sortData(sortCol);
-        }
-    }
+async function scanSymbol(sym){
+ const [k1h,k4h]=await Promise.all([kl(sym,'1h',2),kl(sym,'4h',3)]);
+ const c1=k1h[1], p1=k1h[0];
+ const p4=k4h[1], pp4=k4h[0];
 
-    async function processSymbol(symbol) {
-        // 1. Fetch Klines (4 candles for Volume check, Price, and Open/Close for color)
-        const klines = await fetchJSON(`${BASE_URL}/fapi/v1/klines?symbol=${symbol}&interval=1h&limit=4`);
-        if (!klines || klines.length < 3) return null;
+ if(Number(c1[5])<=Number(p1[5])) return null;
+ if(Number(p4[5])<=Number(pp4[5])) return null;
 
-        const prevK = parseKline(klines[klines.length - 2]);
-        const pprevK = parseKline(klines[klines.length - 3]);
+ const col1=color(c1[1],c1[4]);
+ const col4=color(p4[1],p4[4]);
+ if(col1!==col4) return null;
 
-        // CONDITION 1: Prev Vol > Prev Prev Vol
-        if (prevK.vol <= pprevK.vol) return null;
+ const ls=await lsr(sym,'1h');
+ if(ls.length<2) return null;
 
-        // ----------------------------------------------------
-        // EFFICIENCY POINT: Ratio API call only happens here
-        // ----------------------------------------------------
-        
-        // Fetch only the Top Account Ratio data (limit=2 for prev and curr)
-        const accData = await fetchRatioData(symbol, 'topLongShortAccountRatio');
+ return {
+  symbol:sym,
+  closePct:pct(c1[4],c1[1]),
+  volPct:pct(c1[5],p1[5]),
+  same4h:color(pp4[1],pp4[4])===col4?'Yes':'No',
+  lsDiff:Number(ls[1].longAccount)-Number(ls[0].longAccount)
+ };
+}
 
-        // Check 1.1: Did we get the data?
-        if (!accData || accData.length < 2) {
-             // If ratio data is missing or incomplete, the symbol is discarded
-             // since it can't pass Condition 2.
-             console.log(`[FILTERED] ${symbol}: Volume OK, but Ratio data is missing/incomplete.`);
-             return null;
-        }
+let sort={k:null,asc:true};
+document.querySelectorAll('th').forEach(th=>{
+ th.onclick=()=>{
+  const k=th.dataset.k;
+  sort.asc=sort.k===k?!sort.asc:true; sort.k=k;
+  const rows=[...tbody.children];
+  rows.sort((a,b)=>{
+   const x=a.dataset[k],y=b.dataset[k];
+   const nx=Number(x),ny=Number(y);
+   return !isNaN(nx)&&!isNaN(ny)?(sort.asc?nx-ny:ny-nx):(sort.asc?x.localeCompare(y):y.localeCompare(x));
+  });
+  rows.forEach(r=>tbody.appendChild(r));
+ };
+});
 
-        const aCurr = parseFloat(accData[1].longShortRatio);
-        const aPrev = parseFloat(accData[0].longShortRatio);
-        
-        // Determine Previous Candle Color
-        const isRedCandle = prevK.close < prevK.open;
-
-        // CONDITION 2: Sentiment vs. Price Action
-        let condition2Pass = false;
-
-        if (isRedCandle) {
-            // IF RED: We want Top Accounts to be getting MORE Long (aCurr > aPrev)
-            condition2Pass = (aCurr > aPrev);
-        } else { // It's a Green or Doji Candle (prevK.close >= prevK.open)
-            // IF GREEN: We want Top Accounts to be getting MORE Short (aCurr < aPrev)
-            condition2Pass = (aCurr < aPrev);
-        }
-
-        if (!condition2Pass) return null;
-        
-        // ------------------------------------------------------------------
-        // FINAL STEP: If both conditions pass, fetch the remaining data for display
-        // ------------------------------------------------------------------
-        
-        // Now that the symbol is a guaranteed match, fetch the Position Ratio
-        // (This call is now extremely rare and should not hit rate limits)
-        let posChg = null, smartChg = null;
-        const posData = await fetchRatioData(symbol, 'topLongShortPositionRatio');
-        
-        if (posData && posData.length >= 2) {
-             const pCurr = parseFloat(posData[1].longShortRatio);
-             const pPrev = parseFloat(posData[0].longShortRatio);
-             
-             // Calculate all ratios
-             posChg = ((pCurr - pPrev) / pPrev) * 100;
-             
-             // Smart Ratio (Account/Position)
-             const rCurr = aCurr / pCurr;
-             const rPrev = aPrev / pPrev;
-             smartChg = ((rCurr - rPrev) / rPrev) * 100;
-        }
-
-        // Calculate Account Change (since we have aCurr and aPrev)
-        const accChg = ((aCurr - aPrev) / aPrev) * 100;
-
-        return {
-            symbol,
-            priceChg: ((prevK.close - pprevK.close) / pprevK.close) * 100,
-            volChg: ((prevK.vol - pprevK.vol) / pprevK.vol) * 100,
-            posRatioChg: posChg,
-            accRatioChg: accChg,
-            smartRatioChg: smartChg
-        };
-    }
-
-    // --- Helpers ---
-    async function fetchJSON(url) {
-        const res = await fetch(url);
-        if (!res.ok) {
-            console.error(`API Error: ${url.split('?')[0]} returned HTTP ${res.status}`);
-            throw new Error(`HTTP ${res.status}`);
-        }
-        return await res.json();
-    }
-    
-    // Dedicated fetching for Ratio data
-    async function fetchRatioData(symbol, endpoint) {
-        const url = `${BASE_URL}/fapi/v1/${endpoint}?symbol=${symbol}&period=1h&limit=2`;
-        try {
-            const res = await fetch(url);
-            
-            if (res.status === 429) {
-                console.error(`[FATAL] RATE LIMITED (429) on ${endpoint}. Stopping scan.`);
-                // Throw an error to stop the entire Promise.allSettled loop
-                throw new Error("RATE LIMIT HIT"); 
-            }
-            if (!res.ok) {
-                // Not supported symbol or temporary error (returns empty array for N/A fallback)
-                return []; 
-            }
-            const data = await res.json();
-            return data;
-        } catch (e) {
-            // Network/CORS or the Fatal Rate Limit error
-            if (e.message === "RATE LIMIT HIT") throw e;
-            return [];
-        }
-    }
-
-    function parseKline(k) {
-        // [0: Open Time, 1: Open, 2: High, 3: Low, 4: Close, 5: Volume]
-        return { 
-            open: parseFloat(k[1]), 
-            close: parseFloat(k[4]), 
-            vol: parseFloat(k[5]) 
-        };
-    }
-    
-    const sleep = ms => new Promise(r => setTimeout(r, ms));
-
-    function fmtPct(val) {
-        if (val === null || isNaN(val)) return '<span class="na">N/A</span>';
-        const sign = val > 0 ? '+' : '';
-        const cls = val >= 0 ? 'pos' : 'neg';
-        return `<span class="${cls}">${sign}${val.toFixed(2)}%</span>`;
-    }
-
-    // Sorting & Rendering (Unchanged)
-    function sortData(key) {
-        if (sortCol === key) sortAsc = !sortAsc;
-        else { sortCol = key; sortAsc = false; }
-
-        document.querySelectorAll('th span').forEach(s => s.textContent = '');
-        document.getElementById(`s-${key}`).textContent = sortAsc ? '▲' : '▼';
-
-        tableData.sort((a, b) => {
-            let valA = a[key] === null ? (sortAsc ? -999999 : 999999) : a[key]; 
-            let valB = b[key] === null ? (sortAsc ? -999999 : 999999) : b[key];
-            
-            if (key === 'symbol') return sortAsc ? a.symbol.localeCompare(b.symbol) : b.symbol.localeCompare(a.symbol);
-            return sortAsc ? valA - valB : valB - valA;
-        });
-        renderTable();
-    }
-
-    function renderTable() {
-        tBody.innerHTML = '';
-        if (!tableData.length) {
-            tBody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:20px; color:#666;">${isScanning ? 'Scanning...' : 'No matches found'}</td></tr>`;
-            return;
-        }
-        tableData.forEach(r => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td class="symbol-col">${r.symbol}</td>
-                <td>${fmtPct(r.priceChg)}</td>
-                <td>${fmtPct(r.volChg)}</td>
-                <td>${fmtPct(r.posRatioChg)}</td>
-                <td>${fmtPct(r.accRatioChg)}</td>
-                <td>${fmtPct(r.smartRatioChg)}</td>
-            `;
-            tBody.appendChild(tr);
-        });
-    }
+async function startScan(){
+ tbody.innerHTML=''; bar.style.width='0%';
+ const syms=await getSymbols(); let done=0;
+ for(let i=0;i<syms.length;i+=BATCH){
+  const batch=syms.slice(i,i+BATCH);
+  const res=await Promise.all(batch.map(scanSymbol));
+  res.filter(Boolean).forEach(r=>{
+   const tr=document.createElement('tr');
+   tr.dataset.symbol=r.symbol;
+   tr.dataset.closePct=r.closePct;
+   tr.dataset.volPct=r.volPct;
+   tr.dataset.same4h=r.same4h;
+   tr.dataset.lsDiff=r.lsDiff;
+   tr.innerHTML=`
+    <td>${r.symbol}</td>
+    <td class="${r.closePct>=0?'green':'red'}">${r.closePct.toFixed(2)}</td>
+    <td>${r.volPct.toFixed(2)}</td>
+    <td>${r.same4h}</td>
+    <td>${r.lsDiff.toFixed(2)}</td>`;
+   tbody.appendChild(tr);
+  });
+  done+=batch.length;
+  bar.style.width=(done/syms.length*100)+'%';
+  status.textContent=`Scanning ${done}/${syms.length}`;
+  await new Promise(r=>setTimeout(r,120));
+ }
+ status.textContent='Scan complete';
+}
 </script>
 
 </body>
