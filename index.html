@@ -1,175 +1,166 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8"/>
 <title>hserus</title>
-
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
 <style>
-body{background:#0b1220;color:#e8f1ff;font-family:Arial;padding:16px}
-button{padding:8px 14px;font-size:15px;cursor:pointer}
-table{width:100%;border-collapse:collapse;margin-top:14px}
-th,td{padding:8px;border-bottom:1px solid #233;text-align:center}
-th{background:#131b30;cursor:pointer}
-.green{color:#4cd964}
-.red{color:#ff5b5b}
-#progressBox{margin-top:10px;background:#222;height:18px;border-radius:8px;overflow:hidden}
-#bar{height:100%;width:0%;background:#4cd964;transition:.25s}
-.small{font-size:13px;color:#9fb}
+body{margin:0;background:#07121a;color:#e6f3f6;font-family:Arial;padding:16px}
+h1{font-size:18px;margin:0}
+.controls{display:flex;gap:10px;align-items:center;margin-top:8px}
+button{padding:8px 14px;border:none;border-radius:6px;background:#7be3c7;color:#022;cursor:pointer}
+button:disabled{opacity:.5}
+.small{font-size:13px;color:#9fb6c7}
+#bar{height:10px;background:#122;border-radius:6px;overflow:hidden;margin-top:12px}
+#fill{height:100%;width:0%;background:linear-gradient(90deg,#7be3c7,#2bd18a)}
+table{width:100%;border-collapse:collapse;margin-top:14px;background:#0b2230}
+th,td{padding:9px;border-bottom:1px solid #123;text-align:right}
+th{cursor:pointer;color:#9fb6c7}
+td.symbol{text-align:left;color:#7bdfff;font-weight:bold}
+.green{color:#7be3c7}
+.red{color:#ff6b6b}
 </style>
 </head>
-
 <body>
 
-<button onclick="startScan()">Refresh</button>
-<div id="status" class="small">Idle</div>
-<div id="progressBox"><div id="bar"></div></div>
+<h1>hserus</h1>
+<div class="controls">
+  <button id="refresh">Refresh</button>
+  <div id="status" class="small">Idle</div>
+</div>
 
-<table>
+<div id="bar"><div id="fill"></div></div>
+
+<table id="tbl">
 <thead>
 <tr>
-<th data-k="symbol">Symbol</th>
-<th data-k="closePct">Close %</th>
-<th data-k="volPct">Vol %</th>
-<th data-k="same4h">4h Same</th>
-<th data-k="lsDiff">Δ Long</th>
+  <th>Symbol</th>
+  <th>Close%</th>
+  <th>Vol%</th>
+  <th>Same4h</th>
 </tr>
 </thead>
-<tbody id="tbody"></tbody>
+<tbody id="body">
+<tr><td colspan="4" class="small">Click Refresh</td></tr>
+</tbody>
 </table>
 
 <script>
-const FAPI = 'https://fapi.binance.com';
+const BASE = 'https://fapi.binance.com';
 const BATCH = 5;
+const MAX = 250;
 
 const EXCLUDE = new Set([
- 'BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','ADAUSDT',
- 'DOGEUSDT','AVAXUSDT','DOTUSDT','LINKUSDT','TRXUSDT'
+"BTCUSDT","ETHUSDT","BNBUSDT","SOLUSDT","XRPUSDT","ADAUSDT","DOGEUSDT","AVAXUSDT",
+"DOTUSDT","TRXUSDT","LINKUSDT","LTCUSDT","BCHUSDT","ATOMUSDT","FILUSDT","APTUSDT","SUIUSDT"
 ]);
 
+const tbody = document.getElementById('body');
+const fill = document.getElementById('fill');
+const status = document.getElementById('status');
+const btn = document.getElementById('refresh');
+
+const pct = (a,b)=>((a-b)/b)*100;
+const color = (o,c)=>c>o?'green':c<o?'red':'doji';
+
 async function j(url){
- try{
   const r = await fetch(url);
   if(!r.ok) throw new Error(r.status);
-  return await r.json();
- }catch(e){
-  console.warn('Fetch failed:',url);
-  return null;
- }
+  return r.json();
 }
 
-const pct=(a,b)=>((a-b)/b)*100;
-const color=(o,c)=>c>o?'green':c<o?'red':'doji';
-
-async function getSymbols(){
- const t = await j(`${FAPI}/ticker/24hr`);
- if(!t) return [];
- return t.filter(x=>x.symbol.endsWith('USDT')&&!EXCLUDE.has(x.symbol))
-  .map(x=>({s:x.symbol,score:Math.abs(x.priceChangePercent)*x.quoteVolume}))
-  .sort((a,b)=>b.score-a.score)
-  .slice(0,250)
-  .map(x=>x.s);
-}
-
-async function kl(symbol,tf,n){
- return await j(`${FAPI}/klines?symbol=${symbol}&interval=${tf}&limit=${n}`);
-}
-
-async function lsr(symbol){
- const d = await j(`${FAPI}/futures/data/topLongShortAccountRatio?symbol=${symbol}&period=1h&limit=2`);
- return d && d.length===2 ? d : null;
-}
-
-async function scanSymbol(sym){
- try{
-  const [k1h,k4h] = await Promise.all([
-   kl(sym,'1h',2),
-   kl(sym,'4h',3)
+async function symbols(){
+  const [ei,t] = await Promise.all([
+    j(BASE+'/exchangeInfo'),
+    j(BASE+'/ticker/24hr')
   ]);
-  if(!k1h||!k4h) return null;
+  const perp = new Set(ei.symbols
+    .filter(s=>s.contractType==='PERPETUAL' && s.symbol.endsWith('USDT'))
+    .map(s=>s.symbol));
 
-  const c1=k1h[1], p1=k1h[0];
-  const p4=k4h[1], pp4=k4h[0];
+  return t
+    .filter(x=>perp.has(x.symbol) && !EXCLUDE.has(x.symbol))
+    .map(x=>({s:x.symbol,score:Math.abs(x.priceChangePercent)*x.quoteVolume}))
+    .sort((a,b)=>b.score-a.score)
+    .slice(0,MAX)
+    .map(x=>x.s);
+}
 
-  if(+c1[5] <= +p1[5]) return null;
-  if(+p4[5] <= +pp4[5]) return null;
+async function klines(sym,tf,lim){
+  return j(`${BASE}/klines?symbol=${sym}&interval=${tf}&limit=${lim}`);
+}
 
-  const col1=color(c1[1],c1[4]);
-  const col4=color(p4[1],p4[4]);
-  if(col1!==col4) return null;
+async function scan(){
+  btn.disabled=true;
+  tbody.innerHTML='';
+  fill.style.width='0%';
+  status.textContent='Fetching symbols…';
 
-  let lsDiff=0;
-  const ls = await lsr(sym);
-  if(ls) lsDiff = +ls[1].longAccount - +ls[0].longAccount;
+  const syms = await symbols();
+  let done=0;
 
-  return {
-   symbol:sym,
-   closePct:pct(c1[4],c1[1]),
-   volPct:pct(c1[5],p1[5]),
-   same4h:color(pp4[1],pp4[4])===col4?'Yes':'No',
-   lsDiff
+  for(let i=0;i<syms.length;i+=BATCH){
+    const batch = syms.slice(i,i+BATCH);
+
+    const res = await Promise.all(batch.map(async s=>{
+      try{
+        const [k1,k4] = await Promise.all([
+          klines(s,'1h',2),
+          klines(s,'4h',3)
+        ]);
+
+        const c1=k1[1], p1=k1[0];
+        const c4=k4[1], p4=k4[0];
+
+        if(+c1[5] <= +p1[5]) return;
+        if(+p4[5] <= +k4[0][5]) return;
+
+        if(color(c1[1],c1[4]) !== color(p4[1],p4[4])) return;
+
+        return {
+          s,
+          cp:pct(+c1[4],+c1[1]),
+          vp:pct(+c1[5],+p1[5]),
+          same: color(c4[1],c4[4])===color(p4[1],p4[4])?'Yes':'No'
+        };
+      }catch{return;}
+    }));
+
+    res.filter(Boolean).forEach(o=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML=`
+        <td class="symbol">${o.s}</td>
+        <td class="${o.cp>=0?'green':'red'}">${o.cp.toFixed(2)}%</td>
+        <td>${o.vp.toFixed(2)}%</td>
+        <td>${o.same}</td>`;
+      tbody.appendChild(tr);
+    });
+
+    done+=batch.length;
+    fill.style.width=(done/syms.length*100)+'%';
+    status.textContent=`Scanning ${done}/${syms.length}`;
+    await new Promise(r=>setTimeout(r,120));
+  }
+
+  status.textContent='Scan complete';
+  btn.disabled=false;
+}
+
+btn.onclick=scan;
+
+/* sorting */
+document.querySelectorAll('th').forEach((th,i)=>{
+  th.onclick=()=>{
+    const rows=[...tbody.rows];
+    const asc=th.asc=!th.asc;
+    rows.sort((a,b)=>{
+      const x=a.cells[i].innerText.replace('%','');
+      const y=b.cells[i].innerText.replace('%','');
+      return asc?x-y:y-x;
+    });
+    rows.forEach(r=>tbody.appendChild(r));
   };
- }catch(e){
-  console.warn('Symbol failed:',sym);
-  return null;
- }
-}
-
-let sort={k:null,asc:true};
-document.querySelectorAll('th').forEach(th=>{
- th.onclick=()=>{
-  const k=th.dataset.k;
-  sort.asc=sort.k===k?!sort.asc:true; sort.k=k;
-  const rows=[...tbody.children];
-  rows.sort((a,b)=>{
-   const x=a.dataset[k],y=b.dataset[k];
-   const nx=Number(x),ny=Number(y);
-   return !isNaN(nx)&&!isNaN(ny)?(sort.asc?nx-ny:ny-nx):(sort.asc?x.localeCompare(y):y.localeCompare(x));
-  });
-  rows.forEach(r=>tbody.appendChild(r));
- };
 });
-
-async function startScan(){
- tbody.innerHTML='';
- bar.style.width='0%';
- status.textContent='Preparing scan...';
-
- const syms = await getSymbols();
- if(!syms.length){
-  status.textContent='Failed to load symbols';
-  return;
- }
-
- let done=0;
- for(let i=0;i<syms.length;i+=BATCH){
-  const batch=syms.slice(i,i+BATCH);
-  const res=await Promise.all(batch.map(scanSymbol));
-
-  res.filter(Boolean).forEach(r=>{
-   const tr=document.createElement('tr');
-   tr.dataset.symbol=r.symbol;
-   tr.dataset.closePct=r.closePct;
-   tr.dataset.volPct=r.volPct;
-   tr.dataset.same4h=r.same4h;
-   tr.dataset.lsDiff=r.lsDiff;
-   tr.innerHTML=`
-    <td>${r.symbol}</td>
-    <td class="${r.closePct>=0?'green':'red'}">${r.closePct.toFixed(2)}</td>
-    <td>${r.volPct.toFixed(2)}</td>
-    <td>${r.same4h}</td>
-    <td>${r.lsDiff.toFixed(2)}</td>`;
-   tbody.appendChild(tr);
-  });
-
-  done+=batch.length;
-  bar.style.width=(done/syms.length*100)+'%';
-  status.textContent=`Scanning ${done}/${syms.length}`;
-  await new Promise(r=>setTimeout(r,120));
- }
-
- status.textContent='Scan complete';
-}
 </script>
-
 </body>
 </html>
