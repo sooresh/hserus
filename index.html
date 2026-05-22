@@ -29,7 +29,7 @@
         .neutral { color: #94a3b8; }
         .atm-strike { background-color: #1e293b; border-radius: 4px; padding: 2px 6px; font-weight: bold; color: #f59e0b; }
         
-        .status { margin-top: 10px; font-size: 11px; color: #a1a1aa; text-align: center; line-height: 1.4; background: #18181b; padding: 8px; border-radius: 6px; }
+        .status { margin-top: 10px; font-size: 11px; color: #a1a1aa; text-align: center; line-height: 1.4; background: #18181b; padding: 8px; border-radius: 6px; word-break: break-all; }
     </style>
 </head>
 <body>
@@ -67,7 +67,7 @@
             </tbody>
         </table>
     </div>
-    <div class="status" id="systemState">System initialized. Awaiting network stream sync...</div>
+    <div class="status" id="systemState">System ready. Tap "Fetch Live Data" to start.</div>
 </div>
 
 <script>
@@ -81,66 +81,79 @@
         const logger = document.getElementById('systemState');
         
         try {
-            // STEP 1: Hit the main option chain UI path to initialize a valid cookie session handoff
-            logger.textContent = "Step 1/2: Generating NSE validation cookies...";
+            logger.textContent = "Connecting to NSE option chain...";
+            // Step 1: Establish validation baseline session
             await puter.net.fetch("https://www.nseindia.com/option-chain", {
-                headers: {
-                    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
-                }
+                headers: { "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1" }
             });
 
-            // Brief operational delay to let network session headers settle
-            await new Promise(resolve => setTimeout(resolve, 800));
+            await new Promise(resolve => setTimeout(resolve, 600));
 
-            // STEP 2: Request the actual JSON payload with mobile browser signatures
-            logger.textContent = "Step 2/2: Extracting active data stream...";
+            // Step 2: Extract core data matrices
+            logger.textContent = "Downloading stream rows...";
             const response = await puter.net.fetch("https://www.nseindia.com/api/option-chain-indices?symbol=NIFTY", {
                 headers: {
                     "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept": "application/json, text/plain, */*",
                     "Accept-Language": "en-US,en;q=0.9"
                 }
             });
 
-            if (!response.ok) throw new Error(`NSE Rejected Stream (Status ${response.status})`);
+            if (!response.ok) throw new Error(`NSE Stream Blocked (Code ${response.status})`);
             
             const payload = await response.json();
-            processOptionChainMatrix(payload);
-            logger.textContent = `Refresh Complete: ${new Date().toLocaleTimeString()}`;
+            
+            // Double check payload health before parsing downstream
+            if (!payload || !payload.records || !payload.records.data) {
+                throw new Error("NSE returned empty/invalid matrix profile.");
+            }
+
+            const activeRowParsed = processOptionChainMatrix(payload);
+            if (activeRowParsed) {
+                logger.textContent = `Refresh Complete: ${new Date().toLocaleTimeString()}`;
+            } else {
+                logger.textContent = "Error: Stream loaded but ATM target strike failed to parse. Check data formatting rules.";
+            }
         } catch (fault) {
             console.error(fault);
-            logger.textContent = "Connection Refused. NSE limits rapid requests. Wait 10-15 seconds and tap 'Fetch Live Data' manually.";
+            logger.textContent = `Status: ${fault.message}. Retry in 10-15 seconds.`;
         }
     }
 
     function processOptionChainMatrix(dataset) {
-        if (!dataset || !dataset.records || !dataset.records.underlyingValue) return;
+        const spotIndexPrice = parseFloat(dataset.records.underlyingValue);
+        if (isNaN(spotIndexPrice) || spotIndexPrice <= 0) return false;
 
-        const spotIndexPrice = dataset.records.underlyingValue;
         const proximateExpiry = dataset.records.expiryDates[0];
         const targetedATM = Math.round(spotIndexPrice / 50) * 50;
 
         let selectedCE = null;
         let selectedPE = null;
 
+        // Dynamic defensive row mapping loop
         for (const record of dataset.records.data) {
-            if (record.expiryDate === proximateExpiry && record.strikePrice === targetedATM) {
-                selectedCE = record.CE;
-                selectedPE = record.PE;
-                break;
+            if (record.strikePrice === targetedATM) {
+                // Confirm tracking closest near-term expiration context parameters
+                if (record.expiryDate === proximateExpiry || !selectedCE) {
+                    selectedCE = record.CE || null;
+                    selectedPE = record.PE || null;
+                    if (record.expiryDate === proximateExpiry) break; 
+                }
             }
         }
 
-        if (selectedCE && selectedPE) {
+        if (selectedCE || selectedPE) {
             compileAndRenderRow({
                 spot: spotIndexPrice,
                 atm: targetedATM,
-                ceLtp: selectedCE.lastPrice || 0,
-                peLtp: selectedPE.lastPrice || 0,
-                ceTotalOI: selectedCE.openInterest || 0,
-                peTotalOI: selectedPE.openInterest || 0
+                ceLtp: selectedCE ? (selectedCE.lastPrice || 0) : 0,
+                peLtp: selectedPE ? (selectedPE.lastPrice || 0) : 0,
+                ceTotalOI: selectedCE ? (selectedCE.openInterest || 0) : 0,
+                peTotalOI: selectedPE ? (selectedPE.openInterest || 0) : 0
             });
+            return true;
         }
+        return false;
     }
 
     function compileAndRenderRow(currentMetrics) {
@@ -188,7 +201,6 @@
         backgroundLoop = setInterval(executeScannerPipeline, cycleInterval * 60 * 1000);
     }
 
-    // Run sequences
     coordinateExecutionIntervals();
     executeScannerPipeline();
 </script>
