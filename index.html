@@ -4,14 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>hserus</title>
-    <!-- Puter.js Cloud Engine Engine (Bypasses CORS Client-Side) -->
+    <!-- Puter.js Cloud Engine Engine (Handles Client-Side Proxying) -->
     <script src="https://js.puter.com/v2/"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
         body { background-color: #0b0f19; color: #e2e8f0; padding: 12px; }
         .wrapper { max-width: 100%; margin: 0 auto; }
         
-        /* Mobile Optimized Header */
         header { display: flex; flex-direction: column; gap: 10px; margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #1e293b; }
         h1 { font-size: 20px; color: #38bdf8; text-align: center; }
         
@@ -20,20 +19,17 @@
         button { background-color: #0284c7; border: none; font-weight: bold; cursor: pointer; flex-grow: 2; }
         button:active { background-color: #0369a1; }
         
-        /* Card-based Mobile Table Container */
         .table-wrap { background-color: #111827; border-radius: 10px; overflow-x: auto; box-shadow: 0 4px 10px rgba(0,0,0,0.3); border: 1px solid #1e293b; }
         table { width: 100%; border-collapse: collapse; text-align: left; min-width: 600px; }
         th, td { padding: 12px 10px; border-bottom: 1px solid #1e293b; font-size: 13px; text-align: center; }
         th { background-color: #0f172a; color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; }
         
-        /* Typography Highlights */
         .bullish { color: #4ade80; font-weight: bold; }
         .bearish { color: #f87171; font-weight: bold; }
         .neutral { color: #94a3b8; }
         .atm-strike { background-color: #1e293b; border-radius: 4px; padding: 2px 6px; font-weight: bold; color: #f59e0b; }
         
-        /* System Log Tracker */
-        .status { margin-top: 10px; font-size: 11px; color: #64748b; text-align: center; line-height: 1.4; }
+        .status { margin-top: 10px; font-size: 11px; color: #a1a1aa; text-align: center; line-height: 1.4; background: #18181b; padding: 8px; border-radius: 6px; }
     </style>
 </head>
 <body>
@@ -47,7 +43,7 @@
                 <option value="5" selected>5 Min Loop</option>
                 <option value="15">15 Min Loop</option>
             </select>
-            <button id="triggerFetch">Fetch Live Data</button>
+            <button id="triggerFetch">Fetch</button>
         </div>
     </header>
 
@@ -71,7 +67,7 @@
             </tbody>
         </table>
     </div>
-    <div class="status" id="systemState">System initialized. Waiting for prompt trigger...</div>
+    <div class="status" id="systemState">System initialized. Awaiting network stream sync...</div>
 </div>
 
 <script>
@@ -83,35 +79,50 @@
 
     async function executeScannerPipeline() {
         const logger = document.getElementById('systemState');
-        logger.textContent = "Connecting to NSE servers via Cloud Stream Layer...";
         
         try {
-            // Puter.js establishes proxy tunnel executing native TLS requests securely
-            const response = await puter.net.fetch("https://www.nseindia.com/api/option-chain-indices?symbol=NIFTY");
-            if (!response.ok) throw new Error(`HTTP Session Error! Status: ${response.status}`);
+            // STEP 1: Hit the main option chain UI path to initialize a valid cookie session handoff
+            logger.textContent = "Step 1/2: Generating NSE validation cookies...";
+            await puter.net.fetch("https://www.nseindia.com/option-chain", {
+                headers: {
+                    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
+                }
+            });
+
+            // Brief operational delay to let network session headers settle
+            await new Promise(resolve => setTimeout(resolve, 800));
+
+            // STEP 2: Request the actual JSON payload with mobile browser signatures
+            logger.textContent = "Step 2/2: Extracting active data stream...";
+            const response = await puter.net.fetch("https://www.nseindia.com/api/option-chain-indices?symbol=NIFTY", {
+                headers: {
+                    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.9"
+                }
+            });
+
+            if (!response.ok) throw new Error(`NSE Rejected Stream (Status ${response.status})`);
             
             const payload = await response.json();
             processOptionChainMatrix(payload);
             logger.textContent = `Refresh Complete: ${new Date().toLocaleTimeString()}`;
         } catch (fault) {
             console.error(fault);
-            logger.textContent = "Connection Refused. Retry in a few moments (NSE periodically throttles aggressive requests).";
+            logger.textContent = "Connection Refused. NSE limits rapid requests. Wait 10-15 seconds and tap 'Fetch Live Data' manually.";
         }
     }
 
     function processOptionChainMatrix(dataset) {
-        if (!dataset || !dataset.records) return;
+        if (!dataset || !dataset.records || !dataset.records.underlyingValue) return;
 
         const spotIndexPrice = dataset.records.underlyingValue;
         const proximateExpiry = dataset.records.expiryDates[0];
-        
-        // Match standard Nifty 50-point strike increments
         const targetedATM = Math.round(spotIndexPrice / 50) * 50;
 
         let selectedCE = null;
         let selectedPE = null;
 
-        // Loop array matrix to isolate specific ATM option keys
         for (const record of dataset.records.data) {
             if (record.expiryDate === proximateExpiry && record.strikePrice === targetedATM) {
                 selectedCE = record.CE;
@@ -124,10 +135,10 @@
             compileAndRenderRow({
                 spot: spotIndexPrice,
                 atm: targetedATM,
-                ceLtp: selectedCE.lastPrice,
-                peLtp: selectedPE.lastPrice,
-                ceTotalOI: selectedCE.openInterest,
-                peTotalOI: selectedPE.openInterest
+                ceLtp: selectedCE.lastPrice || 0,
+                peLtp: selectedPE.lastPrice || 0,
+                ceTotalOI: selectedCE.openInterest || 0,
+                peTotalOI: selectedPE.openInterest || 0
             });
         }
     }
@@ -139,7 +150,6 @@
         let dynamicCeOIChg = 0;
         let dynamicPeOIChg = 0;
 
-        // Extract interval differences if baseline exists
         if (historicalSnapshot) {
             dynamicCeOIChg = currentMetrics.ceTotalOI - historicalSnapshot.ceTotalOI;
             dynamicPeOIChg = currentMetrics.peTotalOI - historicalSnapshot.peTotalOI;
@@ -147,7 +157,6 @@
 
         const aggregateNetOI = dynamicCeOIChg - dynamicPeOIChg;
         
-        // Institutional Reading: Call accumulation = resistance, Put accumulation = support
         let sentimentText = "Neutral";
         let colorProfile = "neutral";
         
@@ -169,10 +178,7 @@
             <td class="${colorProfile}">${sentimentText}</td>
         `;
 
-        // Push new data records to the top of the mobile viewing table
         displayContainer.insertBefore(dataRow, displayContainer.firstChild);
-        
-        // Cache current metrics state to reference for the next delta step
         historicalSnapshot = currentMetrics;
     }
 
@@ -182,7 +188,7 @@
         backgroundLoop = setInterval(executeScannerPipeline, cycleInterval * 60 * 1000);
     }
 
-    // Initialize triggers on initial boot up
+    // Run sequences
     coordinateExecutionIntervals();
     executeScannerPipeline();
 </script>
