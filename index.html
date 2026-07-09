@@ -1,209 +1,481 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>hserus</title>
-    <!-- Puter.js Cloud Engine Engine (Handles Client-Side Proxying) -->
-    <script src="https://js.puter.com/v2/"></script>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-        body { background-color: #0b0f19; color: #e2e8f0; padding: 12px; }
-        .wrapper { max-width: 100%; margin: 0 auto; }
-        
-        header { display: flex; flex-direction: column; gap: 10px; margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #1e293b; }
-        h1 { font-size: 20px; color: #38bdf8; text-align: center; }
-        
-        .controls { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-        select, button { background-color: #1e293b; color: #fff; border: 1px solid #334155; padding: 10px 14px; border-radius: 8px; font-size: 14px; flex-grow: 1; -webkit-appearance: none; }
-        button { background-color: #0284c7; border: none; font-weight: bold; cursor: pointer; flex-grow: 2; }
-        button:active { background-color: #0369a1; }
-        
-        .table-wrap { background-color: #111827; border-radius: 10px; overflow-x: auto; box-shadow: 0 4px 10px rgba(0,0,0,0.3); border: 1px solid #1e293b; }
-        table { width: 100%; border-collapse: collapse; text-align: left; min-width: 600px; }
-        th, td { padding: 12px 10px; border-bottom: 1px solid #1e293b; font-size: 13px; text-align: center; }
-        th { background-color: #0f172a; color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; }
-        
-        .bullish { color: #4ade80; font-weight: bold; }
-        .bearish { color: #f87171; font-weight: bold; }
-        .neutral { color: #94a3b8; }
-        .atm-strike { background-color: #1e293b; border-radius: 4px; padding: 2px 6px; font-weight: bold; color: #f59e0b; }
-        
-        .status { margin-top: 10px; font-size: 11px; color: #a1a1aa; text-align: center; line-height: 1.4; background: #18181b; padding: 8px; border-radius: 6px; word-break: break-all; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>hserus</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #0b0e0d;
+    --panel: #121613;
+    --panel-2: #161b17;
+    --line: #232a25;
+    --text: #e8ede9;
+    --muted: #7c8a80;
+    --gold: #f0b90b;
+    --green: #0ecb81;
+    --red: #f6465d;
+    --green-dim: rgba(14,203,129,0.12);
+    --red-dim: rgba(246,70,93,0.12);
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:
+      radial-gradient(1200px 600px at 85% -10%, rgba(240,185,11,0.06), transparent 60%),
+      var(--bg);
+    color:var(--text);
+    font-family:'Inter', sans-serif;
+    min-height:100vh;
+  }
+  .wrap{ max-width:1180px; margin:0 auto; padding:32px 20px 80px; }
+
+  header{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    gap:20px;
+    flex-wrap:wrap;
+    border-bottom:1px solid var(--line);
+    padding-bottom:20px;
+    margin-bottom:22px;
+  }
+  .brand-eyebrow{
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px;
+    letter-spacing:0.18em;
+    text-transform:uppercase;
+    color:var(--gold);
+    margin-bottom:6px;
+  }
+  h1{
+    font-family:'Space Grotesk', sans-serif;
+    font-size:28px;
+    font-weight:700;
+    margin:0;
+    letter-spacing:-0.01em;
+  }
+  .sub{
+    color:var(--muted);
+    font-size:13px;
+    margin-top:6px;
+    max-width:520px;
+    line-height:1.5;
+  }
+  .sub code{
+    font-family:'JetBrains Mono', monospace;
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    padding:1px 5px;
+    border-radius:4px;
+    font-size:12px;
+  }
+
+  .controls{ display:flex; align-items:center; gap:12px; }
+  button.scan-btn{
+    font-family:'Space Grotesk', sans-serif;
+    font-weight:600;
+    font-size:14px;
+    background:var(--gold);
+    color:#141400;
+    border:none;
+    padding:11px 22px;
+    border-radius:8px;
+    cursor:pointer;
+    transition:transform .12s ease, box-shadow .12s ease;
+    box-shadow:0 0 0 rgba(240,185,11,0);
+  }
+  button.scan-btn:hover:not(:disabled){ transform:translateY(-1px); box-shadow:0 6px 18px rgba(240,185,11,0.18); }
+  button.scan-btn:disabled{ background:#3a3a2c; color:#8a8a6a; cursor:not-allowed; }
+  button.scan-btn:focus-visible{ outline:2px solid var(--gold); outline-offset:2px; }
+
+  /* progress module */
+  .progress-panel{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:16px 18px;
+    margin-bottom:22px;
+    display:none;
+  }
+  .progress-panel.active{ display:block; }
+  .progress-top{
+    display:flex; justify-content:space-between; align-items:baseline;
+    font-family:'JetBrains Mono', monospace;
+    font-size:12.5px;
+    margin-bottom:10px;
+  }
+  .progress-top .count{ color:var(--text); font-weight:600; }
+  .progress-top .status{ color:var(--muted); }
+  .progress-top .hit{ color:var(--green); }
+  .bar-track{
+    height:6px;
+    background:var(--panel-2);
+    border-radius:4px;
+    overflow:hidden;
+    border:1px solid var(--line);
+  }
+  .bar-fill{
+    height:100%;
+    width:0%;
+    background:linear-gradient(90deg, var(--gold), #ffd65a);
+    transition:width .25s ease;
+  }
+  .scan-log{
+    margin-top:12px;
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px;
+    color:var(--muted);
+  }
+  .scan-log span{
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    padding:3px 7px;
+    border-radius:5px;
+    white-space:nowrap;
+  }
+  .scan-log span.pass{ color:var(--green); border-color:rgba(14,203,129,0.35); }
+
+  /* results */
+  .results-head{
+    display:flex; justify-content:space-between; align-items:center;
+    margin-bottom:12px; flex-wrap:wrap; gap:10px;
+  }
+  .results-title{
+    font-family:'Space Grotesk', sans-serif;
+    font-size:15px; font-weight:600;
+  }
+  .results-title .n{ color:var(--gold); }
+  .sort-controls{ display:flex; gap:8px; align-items:center; }
+  .sort-controls span.label{ font-size:11px; color:var(--muted); font-family:'JetBrains Mono', monospace; margin-right:2px;}
+  .sort-btn{
+    font-family:'JetBrains Mono', monospace;
+    font-size:12px;
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    color:var(--muted);
+    padding:7px 12px;
+    border-radius:7px;
+    cursor:pointer;
+    display:flex; align-items:center; gap:6px;
+    transition:all .12s ease;
+  }
+  .sort-btn:hover{ color:var(--text); border-color:#3a4540; }
+  .sort-btn.active{ color:var(--gold); border-color:rgba(240,185,11,0.4); background:rgba(240,185,11,0.06); }
+  .sort-btn .arrow{ font-size:10px; }
+
+  table{ width:100%; border-collapse:collapse; }
+  thead th{
+    text-align:right;
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+    color:var(--muted);
+    padding:10px 14px;
+    border-bottom:1px solid var(--line);
+    font-weight:500;
+  }
+  thead th:first-child, tbody td:first-child{ text-align:left; }
+  tbody tr{ border-bottom:1px solid var(--line); transition:background .12s ease; }
+  tbody tr:hover{ background:var(--panel-2); }
+  tbody td{ padding:12px 14px; font-family:'JetBrains Mono', monospace; font-size:13px; text-align:right; }
+  td.sym{ text-align:left; font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:13.5px; letter-spacing:0.01em; }
+  td.sym .quote{ color:var(--muted); font-weight:500; font-size:11px; }
+  .pos{ color:var(--green); }
+  .neg{ color:var(--red); }
+  .pill{
+    display:inline-block; padding:2px 7px; border-radius:5px; font-size:11px; margin-left:8px;
+  }
+  .pill.pos{ background:var(--green-dim); }
+  .pill.neg{ background:var(--red-dim); }
+
+  .empty{
+    text-align:center; padding:60px 20px; color:var(--muted);
+    font-family:'JetBrains Mono', monospace; font-size:13px;
+    border:1px dashed var(--line); border-radius:10px;
+  }
+
+  footer{
+    margin-top:26px; font-size:11px; color:var(--muted);
+    font-family:'JetBrains Mono', monospace; text-align:center;
+  }
+
+  ::-webkit-scrollbar{ width:8px; height:8px; }
+  ::-webkit-scrollbar-thumb{ background:var(--line); border-radius:4px; }
+</style>
 </head>
 <body>
+<div class="wrap">
 
-<div class="wrapper">
-    <header>
-        <h1>hserus</h1>
-        <div class="controls">
-            <select id="intervalSelect">
-                <option value="2">2 Min Loop</option>
-                <option value="5" selected>5 Min Loop</option>
-                <option value="15">15 Min Loop</option>
-            </select>
-            <button id="triggerFetch">Fetch</button>
-        </div>
-    </header>
-
-    <div class="table-wrap">
-        <table>
-            <thead>
-                <tr>
-                    <th>Time</th>
-                    <th>Spot</th>
-                    <th>ATM Strike</th>
-                    <th>CE Price</th>
-                    <th>PE Price</th>
-                    <th>CE OI Chg</th>
-                    <th>PE OI Chg</th>
-                    <th>Net Chg</th>
-                    <th>Market Bias</th>
-                </tr>
-            </thead>
-            <tbody id="trackerLogs">
-                <!-- Live data rows insert here -->
-            </tbody>
-        </table>
+  <header>
+    <div>
+      <div class="brand-eyebrow">Binance · Spot · 1H</div>
+      <h1>hserus</h1>
+      <div class="sub">
+        Flags symbols where <code>current vol &gt; max(last 5 candles)</code> AND the current candle's color differs from the previous one. Top 250 symbols by 24h quote volume, fetched in batches of 10.
+      </div>
     </div>
-    <div class="status" id="systemState">System ready. Tap "Fetch Live Data" to start.</div>
+    <div class="controls">
+      <button class="scan-btn" id="scanBtn">Run scan</button>
+    </div>
+  </header>
+
+  <div class="progress-panel" id="progressPanel">
+    <div class="progress-top">
+      <div><span class="count" id="progCount">0 / 0</span> <span class="status" id="progStatus">idle</span></div>
+      <div class="hit" id="progHits">0 matches</div>
+    </div>
+    <div class="bar-track"><div class="bar-fill" id="barFill"></div></div>
+    <div class="scan-log" id="scanLog"></div>
+  </div>
+
+  <div class="results-head">
+    <div class="results-title"><span class="n" id="resultCount">0</span> symbols matched</div>
+    <div class="sort-controls">
+      <span class="label">SORT</span>
+      <button class="sort-btn active" id="sortVol" data-key="volChg">Vol chg <span class="arrow">▼</span></button>
+      <button class="sort-btn" id="sortPrice" data-key="priceChg">Price chg <span class="arrow">▼</span></button>
+    </div>
+  </div>
+
+  <div id="tableHost">
+    <div class="empty">No results yet. Run a scan to populate this table.</div>
+  </div>
+
+  <footer>Data via Binance public REST API · candle metrics reflect the current forming 1H candle</footer>
 </div>
 
 <script>
-    let historicalSnapshot = null;
-    let backgroundLoop = null;
+const BATCH_SIZE = 10;
+const BATCH_DELAY_MS = 150;
+const TOP_N = 250;
 
-    document.getElementById('triggerFetch').addEventListener('click', executeScannerPipeline);
-    document.getElementById('intervalSelect').addEventListener('change', coordinateExecutionIntervals);
+let results = [];
+let sortKey = 'volChg';
+let sortDir = -1; // -1 desc, 1 asc
+let scanning = false;
 
-    async function executeScannerPipeline() {
-        const logger = document.getElementById('systemState');
-        
-        try {
-            logger.textContent = "Connecting to NSE option chain...";
-            // Step 1: Establish validation baseline session
-            await puter.net.fetch("https://www.nseindia.com/option-chain", {
-                headers: { "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1" }
-            });
+const el = {
+  scanBtn: document.getElementById('scanBtn'),
+  progressPanel: document.getElementById('progressPanel'),
+  progCount: document.getElementById('progCount'),
+  progStatus: document.getElementById('progStatus'),
+  progHits: document.getElementById('progHits'),
+  barFill: document.getElementById('barFill'),
+  scanLog: document.getElementById('scanLog'),
+  resultCount: document.getElementById('resultCount'),
+  tableHost: document.getElementById('tableHost'),
+  sortVol: document.getElementById('sortVol'),
+  sortPrice: document.getElementById('sortPrice'),
+};
 
-            await new Promise(resolve => setTimeout(resolve, 600));
+function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
 
-            // Step 2: Extract core data matrices
-            logger.textContent = "Downloading stream rows...";
-            const response = await puter.net.fetch("https://www.nseindia.com/api/option-chain-indices?symbol=NIFTY", {
-                headers: {
-                    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
-                    "Accept": "application/json, text/plain, */*",
-                    "Accept-Language": "en-US,en;q=0.9"
-                }
-            });
+function fmtPct(n){
+  const s = (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+  return s;
+}
 
-            if (!response.ok) throw new Error(`NSE Stream Blocked (Code ${response.status})`);
-            
-            const payload = await response.json();
-            
-            // Double check payload health before parsing downstream
-            if (!payload || !payload.records || !payload.records.data) {
-                throw new Error("NSE returned empty/invalid matrix profile.");
-            }
+function pctClass(n){ return n >= 0 ? 'pos' : 'neg'; }
 
-            const activeRowParsed = processOptionChainMatrix(payload);
-            if (activeRowParsed) {
-                logger.textContent = `Refresh Complete: ${new Date().toLocaleTimeString()}`;
-            } else {
-                logger.textContent = "Error: Stream loaded but ATM target strike failed to parse. Check data formatting rules.";
-            }
-        } catch (fault) {
-            console.error(fault);
-            logger.textContent = `Status: ${fault.message}. Retry in 10-15 seconds.`;
-        }
+async function getTopSymbols(){
+  el.progStatus.textContent = 'fetching symbol list…';
+  const res = await fetch('https://api.binance.com/api/v3/ticker/24hr');
+  if(!res.ok) throw new Error('Failed to fetch ticker list');
+  const data = await res.json();
+  const excluded = /(UP|DOWN|BULL|BEAR)USDT$/;
+  const filtered = data.filter(d => d.symbol.endsWith('USDT') && !excluded.test(d.symbol));
+  filtered.sort((a,b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume));
+  return filtered.slice(0, TOP_N).map(d => d.symbol);
+}
+
+async function fetchKlines(symbol){
+  const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1h&limit=6`;
+  const res = await fetch(url);
+  if(!res.ok) throw new Error('klines fetch failed: ' + symbol);
+  return res.json();
+}
+
+function candleColor(k){
+  const open = parseFloat(k[1]);
+  const close = parseFloat(k[4]);
+  return close >= open ? 'green' : 'red';
+}
+
+async function processSymbol(symbol){
+  try{
+    const klines = await fetchKlines(symbol);
+    if(!klines || klines.length < 6) return null;
+
+    const last5 = klines.slice(0, 5);      // 5 most recent CLOSED candles
+    const prev = klines[4];                // previous closed candle (last of the 5)
+    const current = klines[5];             // current forming candle
+
+    const maxVolLast5 = Math.max(...last5.map(k => parseFloat(k[5])));
+    const currentVol = parseFloat(current[5]);
+    const prevVol = parseFloat(prev[5]);
+
+    const cond1 = currentVol > maxVolLast5;
+    if(!cond1) return { pass:false };
+
+    const currColor = candleColor(current);
+    const prevColor = candleColor(prev);
+    const cond2 = currColor !== prevColor;
+    if(!cond2) return { pass:false };
+
+    const currentOpen = parseFloat(current[1]);
+    const currentClose = parseFloat(current[4]);
+    const priceChg = ((currentClose - currentOpen) / currentOpen) * 100;
+    const volChg = ((currentVol - prevVol) / prevVol) * 100;
+
+    return {
+      pass:true,
+      symbol,
+      priceChg,
+      volChg,
+      color: currColor
+    };
+  }catch(e){
+    return null;
+  }
+}
+
+function logScan(symbol, passed){
+  const span = document.createElement('span');
+  span.textContent = symbol.replace('USDT','');
+  if(passed) span.classList.add('pass');
+  el.scanLog.appendChild(span);
+  while(el.scanLog.children.length > 24){
+    el.scanLog.removeChild(el.scanLog.firstChild);
+  }
+}
+
+function sortResults(){
+  results.sort((a,b) => (a[sortKey] - b[sortKey]) * sortDir);
+}
+
+function renderTable(){
+  el.resultCount.textContent = results.length;
+  if(results.length === 0){
+    el.tableHost.innerHTML = '<div class="empty">No matches yet. Symbols satisfying both conditions will appear here as they are found.</div>';
+    return;
+  }
+  sortResults();
+  const rows = results.map(r => {
+    const base = r.symbol.replace('USDT','');
+    return `<tr>
+      <td class="sym">${base}<span class="quote">/USDT</span></td>
+      <td class="${pctClass(r.priceChg)}">${fmtPct(r.priceChg)}</td>
+      <td class="${pctClass(r.volChg)}">${fmtPct(r.volChg)}</td>
+    </tr>`;
+  }).join('');
+  el.tableHost.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>Price chg (current candle)</th>
+          <th>Vol chg (vs prev candle)</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function updateSortButtons(){
+  [el.sortVol, el.sortPrice].forEach(btn => {
+    const key = btn.dataset.key;
+    btn.classList.toggle('active', key === sortKey);
+    const arrow = btn.querySelector('.arrow');
+    if(key === sortKey){
+      arrow.textContent = sortDir === -1 ? '▼' : '▲';
+    } else {
+      arrow.textContent = '▼';
     }
+  });
+}
 
-    function processOptionChainMatrix(dataset) {
-        const spotIndexPrice = parseFloat(dataset.records.underlyingValue);
-        if (isNaN(spotIndexPrice) || spotIndexPrice <= 0) return false;
+function setSort(key){
+  if(sortKey === key){
+    sortDir *= -1;
+  } else {
+    sortKey = key;
+    sortDir = -1;
+  }
+  updateSortButtons();
+  renderTable();
+}
 
-        const proximateExpiry = dataset.records.expiryDates[0];
-        const targetedATM = Math.round(spotIndexPrice / 50) * 50;
+el.sortVol.addEventListener('click', () => setSort('volChg'));
+el.sortPrice.addEventListener('click', () => setSort('priceChg'));
 
-        let selectedCE = null;
-        let selectedPE = null;
+async function runScan(){
+  if(scanning) return;
+  scanning = true;
+  el.scanBtn.disabled = true;
+  el.scanBtn.textContent = 'Scanning…';
+  el.progressPanel.classList.add('active');
+  el.scanLog.innerHTML = '';
+  results = [];
+  renderTable();
 
-        // Dynamic defensive row mapping loop
-        for (const record of dataset.records.data) {
-            if (record.strikePrice === targetedATM) {
-                // Confirm tracking closest near-term expiration context parameters
-                if (record.expiryDate === proximateExpiry || !selectedCE) {
-                    selectedCE = record.CE || null;
-                    selectedPE = record.PE || null;
-                    if (record.expiryDate === proximateExpiry) break; 
-                }
-            }
-        }
+  let symbols = [];
+  try{
+    symbols = await getTopSymbols();
+  }catch(e){
+    el.progStatus.textContent = 'error fetching symbol list — try again';
+    scanning = false;
+    el.scanBtn.disabled = false;
+    el.scanBtn.textContent = 'Run scan';
+    return;
+  }
 
-        if (selectedCE || selectedPE) {
-            compileAndRenderRow({
-                spot: spotIndexPrice,
-                atm: targetedATM,
-                ceLtp: selectedCE ? (selectedCE.lastPrice || 0) : 0,
-                peLtp: selectedPE ? (selectedPE.lastPrice || 0) : 0,
-                ceTotalOI: selectedCE ? (selectedCE.openInterest || 0) : 0,
-                peTotalOI: selectedPE ? (selectedPE.openInterest || 0) : 0
-            });
-            return true;
-        }
-        return false;
+  const total = symbols.length;
+  let done = 0;
+  let hits = 0;
+
+  for(let i = 0; i < total; i += BATCH_SIZE){
+    const batch = symbols.slice(i, i + BATCH_SIZE);
+    el.progStatus.textContent = `scanning batch ${Math.floor(i/BATCH_SIZE)+1} of ${Math.ceil(total/BATCH_SIZE)}…`;
+
+    const batchResults = await Promise.all(batch.map(sym => processSymbol(sym)));
+
+    batch.forEach((sym, idx) => {
+      const r = batchResults[idx];
+      done += 1;
+      const passed = r && r.pass;
+      logScan(sym, passed);
+      if(passed){
+        hits += 1;
+        results.push(r);
+      }
+    });
+
+    el.progCount.textContent = `${done} / ${total}`;
+    el.progHits.textContent = `${hits} match${hits === 1 ? '' : 'es'}`;
+    el.barFill.style.width = `${(done/total*100).toFixed(1)}%`;
+    renderTable();
+
+    if(i + BATCH_SIZE < total){
+      await sleep(BATCH_DELAY_MS);
     }
+  }
 
-    function compileAndRenderRow(currentMetrics) {
-        const displayContainer = document.getElementById('trackerLogs');
-        const wallClockTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        
-        let dynamicCeOIChg = 0;
-        let dynamicPeOIChg = 0;
+  el.progStatus.textContent = 'scan complete';
+  scanning = false;
+  el.scanBtn.disabled = false;
+  el.scanBtn.textContent = 'Run scan again';
+}
 
-        if (historicalSnapshot) {
-            dynamicCeOIChg = currentMetrics.ceTotalOI - historicalSnapshot.ceTotalOI;
-            dynamicPeOIChg = currentMetrics.peTotalOI - historicalSnapshot.peTotalOI;
-        }
-
-        const aggregateNetOI = dynamicCeOIChg - dynamicPeOIChg;
-        
-        let sentimentText = "Neutral";
-        let colorProfile = "neutral";
-        
-        if (dynamicCeOIChg !== 0 || dynamicPeOIChg !== 0) {
-            sentimentText = aggregateNetOI > 0 ? "Bearish (Call Writing)" : "Bullish (Put Writing)";
-            colorProfile = aggregateNetOI > 0 ? "bearish" : "bullish";
-        }
-
-        const dataRow = document.createElement('tr');
-        dataRow.innerHTML = `
-            <td>${wallClockTime}</td>
-            <td>${currentMetrics.spot.toFixed(2)}</td>
-            <td><span class="atm-strike">${currentMetrics.atm}</span></td>
-            <td>₹${currentMetrics.ceLtp.toFixed(2)}</td>
-            <td>₹${currentMetrics.peLtp.toFixed(2)}</td>
-            <td class="${dynamicCeOIChg >= 0 ? 'bearish' : 'bullish'}">${dynamicCeOIChg >= 0 ? '+' : ''}${dynamicCeOIChg.toLocaleString()}</td>
-            <td class="${dynamicPeOIChg >= 0 ? 'bullish' : 'bearish'}">${dynamicPeOIChg >= 0 ? '+' : ''}${dynamicPeOIChg.toLocaleString()}</td>
-            <td class="${colorProfile}">${aggregateNetOI >= 0 ? '+' : ''}${aggregateNetOI.toLocaleString()}</td>
-            <td class="${colorProfile}">${sentimentText}</td>
-        `;
-
-        displayContainer.insertBefore(dataRow, displayContainer.firstChild);
-        historicalSnapshot = currentMetrics;
-    }
-
-    function coordinateExecutionIntervals() {
-        if (backgroundLoop) clearInterval(backgroundLoop);
-        const cycleInterval = parseInt(document.getElementById('intervalSelect').value);
-        backgroundLoop = setInterval(executeScannerPipeline, cycleInterval * 60 * 1000);
-    }
-
-    coordinateExecutionIntervals();
-    executeScannerPipeline();
+el.scanBtn.addEventListener('click', runScan);
+updateSortButtons();
 </script>
-
 </body>
 </html>
