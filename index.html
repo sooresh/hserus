@@ -215,10 +215,10 @@
 
   <header>
     <div>
-      <div class="brand-eyebrow">Binance · Spot · 1H</div>
+      <div class="brand-eyebrow">Binance · USDT-M Futures · 1H</div>
       <h1>hserus</h1>
       <div class="sub">
-        Flags symbols where <code>current vol &gt; max(last 5 candles)</code> AND the current candle's color differs from the previous one. Top 250 symbols by 24h quote volume, fetched in batches of 10.
+        Flags symbols where <code>current vol &gt; max(last 5 candles)</code> AND the current candle's color differs from the previous one. Top 250 USDT-margined perpetuals by 24h quote volume, fetched in batches of 10.
       </div>
     </div>
     <div class="controls">
@@ -241,6 +241,7 @@
       <span class="label">SORT</span>
       <button class="sort-btn active" id="sortVol" data-key="volChg">Vol chg <span class="arrow">▼</span></button>
       <button class="sort-btn" id="sortPrice" data-key="priceChg">Price chg <span class="arrow">▼</span></button>
+      <button class="sort-btn" id="sortPrevChg" data-key="prevChg">Prev candle chg <span class="arrow">▼</span></button>
     </div>
   </div>
 
@@ -273,6 +274,7 @@ const el = {
   tableHost: document.getElementById('tableHost'),
   sortVol: document.getElementById('sortVol'),
   sortPrice: document.getElementById('sortPrice'),
+  sortPrevChg: document.getElementById('sortPrevChg'),
 };
 
 function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
@@ -285,18 +287,29 @@ function fmtPct(n){
 function pctClass(n){ return n >= 0 ? 'pos' : 'neg'; }
 
 async function getTopSymbols(){
-  el.progStatus.textContent = 'fetching symbol list…';
-  const res = await fetch('https://api.binance.com/api/v3/ticker/24hr');
-  if(!res.ok) throw new Error('Failed to fetch ticker list');
-  const data = await res.json();
-  const excluded = /(UP|DOWN|BULL|BEAR)USDT$/;
-  const filtered = data.filter(d => d.symbol.endsWith('USDT') && !excluded.test(d.symbol));
+  el.progStatus.textContent = 'fetching futures symbol list…';
+  const [infoRes, tickerRes] = await Promise.all([
+    fetch('https://fapi.binance.com/fapi/v1/exchangeInfo'),
+    fetch('https://fapi.binance.com/fapi/v1/ticker/24hr')
+  ]);
+  if(!infoRes.ok || !tickerRes.ok) throw new Error('Failed to fetch futures symbol list');
+  const info = await infoRes.json();
+  const tickers = await tickerRes.json();
+
+  // Only live, USDT-margined perpetual contracts
+  const validSymbols = new Set(
+    info.symbols
+      .filter(s => s.status === 'TRADING' && s.contractType === 'PERPETUAL' && s.quoteAsset === 'USDT')
+      .map(s => s.symbol)
+  );
+
+  const filtered = tickers.filter(d => validSymbols.has(d.symbol));
   filtered.sort((a,b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume));
   return filtered.slice(0, TOP_N).map(d => d.symbol);
 }
 
 async function fetchKlines(symbol){
-  const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1h&limit=6`;
+  const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=1h&limit=6`;
   const res = await fetch(url);
   if(!res.ok) throw new Error('klines fetch failed: ' + symbol);
   return res.json();
@@ -331,14 +344,19 @@ async function processSymbol(symbol){
 
     const currentOpen = parseFloat(current[1]);
     const currentClose = parseFloat(current[4]);
+    const prevOpen = parseFloat(prev[1]);
+    const prevClose = parseFloat(prev[4]);
+
     const priceChg = ((currentClose - currentOpen) / currentOpen) * 100;
     const volChg = ((currentVol - prevVol) / prevVol) * 100;
+    const prevChg = ((prevClose - prevOpen) / prevOpen) * 100;
 
     return {
       pass:true,
       symbol,
       priceChg,
       volChg,
+      prevChg,
       color: currColor
     };
   }catch(e){
@@ -373,6 +391,7 @@ function renderTable(){
       <td class="sym">${base}<span class="quote">/USDT</span></td>
       <td class="${pctClass(r.priceChg)}">${fmtPct(r.priceChg)}</td>
       <td class="${pctClass(r.volChg)}">${fmtPct(r.volChg)}</td>
+      <td class="${pctClass(r.prevChg)}">${fmtPct(r.prevChg)}</td>
     </tr>`;
   }).join('');
   el.tableHost.innerHTML = `
@@ -382,6 +401,7 @@ function renderTable(){
           <th>Symbol</th>
           <th>Price chg (current candle)</th>
           <th>Vol chg (vs prev candle)</th>
+          <th>Prev candle chg</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
@@ -390,7 +410,7 @@ function renderTable(){
 }
 
 function updateSortButtons(){
-  [el.sortVol, el.sortPrice].forEach(btn => {
+  [el.sortVol, el.sortPrice, el.sortPrevChg].forEach(btn => {
     const key = btn.dataset.key;
     btn.classList.toggle('active', key === sortKey);
     const arrow = btn.querySelector('.arrow');
@@ -415,6 +435,7 @@ function setSort(key){
 
 el.sortVol.addEventListener('click', () => setSort('volChg'));
 el.sortPrice.addEventListener('click', () => setSort('priceChg'));
+el.sortPrevChg.addEventListener('click', () => setSort('prevChg'));
 
 async function runScan(){
   if(scanning) return;
