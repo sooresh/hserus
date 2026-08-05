@@ -1,502 +1,399 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>hserus</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<style>
-  :root{
-    --bg: #0b0e0d;
-    --panel: #121613;
-    --panel-2: #161b17;
-    --line: #232a25;
-    --text: #e8ede9;
-    --muted: #7c8a80;
-    --gold: #f0b90b;
-    --green: #0ecb81;
-    --red: #f6465d;
-    --green-dim: rgba(14,203,129,0.12);
-    --red-dim: rgba(246,70,93,0.12);
-  }
-  *{box-sizing:border-box;}
-  body{
-    margin:0;
-    background:
-      radial-gradient(1200px 600px at 85% -10%, rgba(240,185,11,0.06), transparent 60%),
-      var(--bg);
-    color:var(--text);
-    font-family:'Inter', sans-serif;
-    min-height:100vh;
-  }
-  .wrap{ max-width:1180px; margin:0 auto; padding:32px 20px 80px; }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>hserus</title>
+    <style>
+        :root {
+            --bg-color: #0b0e11;
+            --card-bg: #181a20;
+            --text-main: #eaecef;
+            --text-muted: #848e9c;
+            --primary: #fcd535;
+            --primary-hover: #e0bd2e;
+            --green: #0ecb81;
+            --red: #f6465d;
+            --border: #2b3139;
+        }
 
-  header{
-    display:flex;
-    justify-content:space-between;
-    align-items:flex-end;
-    gap:20px;
-    flex-wrap:wrap;
-    border-bottom:1px solid var(--line);
-    padding-bottom:20px;
-    margin-bottom:22px;
-  }
-  .brand-eyebrow{
-    font-family:'JetBrains Mono', monospace;
-    font-size:11px;
-    letter-spacing:0.18em;
-    text-transform:uppercase;
-    color:var(--gold);
-    margin-bottom:6px;
-  }
-  h1{
-    font-family:'Space Grotesk', sans-serif;
-    font-size:28px;
-    font-weight:700;
-    margin:0;
-    letter-spacing:-0.01em;
-  }
-  .sub{
-    color:var(--muted);
-    font-size:13px;
-    margin-top:6px;
-    max-width:520px;
-    line-height:1.5;
-  }
-  .sub code{
-    font-family:'JetBrains Mono', monospace;
-    background:var(--panel-2);
-    border:1px solid var(--line);
-    padding:1px 5px;
-    border-radius:4px;
-    font-size:12px;
-  }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
 
-  .controls{ display:flex; align-items:center; gap:12px; }
-  button.scan-btn{
-    font-family:'Space Grotesk', sans-serif;
-    font-weight:600;
-    font-size:14px;
-    background:var(--gold);
-    color:#141400;
-    border:none;
-    padding:11px 22px;
-    border-radius:8px;
-    cursor:pointer;
-    transition:transform .12s ease, box-shadow .12s ease;
-    box-shadow:0 0 0 rgba(240,185,11,0);
-  }
-  button.scan-btn:hover:not(:disabled){ transform:translateY(-1px); box-shadow:0 6px 18px rgba(240,185,11,0.18); }
-  button.scan-btn:disabled{ background:#3a3a2c; color:#8a8a6a; cursor:not-allowed; }
-  button.scan-btn:focus-visible{ outline:2px solid var(--gold); outline-offset:2px; }
+        .container {
+            background-color: var(--card-bg);
+            padding: 24px;
+            border-radius: 8px;
+            width: 100%;
+            max-width: 1100px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        }
 
-  /* progress module */
-  .progress-panel{
-    background:var(--panel);
-    border:1px solid var(--line);
-    border-radius:10px;
-    padding:16px 18px;
-    margin-bottom:22px;
-    display:none;
-  }
-  .progress-panel.active{ display:block; }
-  .progress-top{
-    display:flex; justify-content:space-between; align-items:baseline;
-    font-family:'JetBrains Mono', monospace;
-    font-size:12.5px;
-    margin-bottom:10px;
-  }
-  .progress-top .count{ color:var(--text); font-weight:600; }
-  .progress-top .status{ color:var(--muted); }
-  .progress-top .hit{ color:var(--green); }
-  .bar-track{
-    height:6px;
-    background:var(--panel-2);
-    border-radius:4px;
-    overflow:hidden;
-    border:1px solid var(--line);
-  }
-  .bar-fill{
-    height:100%;
-    width:0%;
-    background:linear-gradient(90deg, var(--gold), #ffd65a);
-    transition:width .25s ease;
-  }
-  .scan-log{
-    margin-top:12px;
-    display:flex;
-    gap:8px;
-    flex-wrap:wrap;
-    font-family:'JetBrains Mono', monospace;
-    font-size:11px;
-    color:var(--muted);
-  }
-  .scan-log span{
-    background:var(--panel-2);
-    border:1px solid var(--line);
-    padding:3px 7px;
-    border-radius:5px;
-    white-space:nowrap;
-  }
-  .scan-log span.pass{ color:var(--green); border-color:rgba(14,203,129,0.35); }
+        .header-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 12px;
+        }
 
-  /* results */
-  .results-head{
-    display:flex; justify-content:space-between; align-items:center;
-    margin-bottom:12px; flex-wrap:wrap; gap:10px;
-  }
-  .results-title{
-    font-family:'Space Grotesk', sans-serif;
-    font-size:15px; font-weight:600;
-  }
-  .results-title .n{ color:var(--gold); }
-  .sort-controls{ display:flex; gap:8px; align-items:center; }
-  .sort-controls span.label{ font-size:11px; color:var(--muted); font-family:'JetBrains Mono', monospace; margin-right:2px;}
-  .sort-btn{
-    font-family:'JetBrains Mono', monospace;
-    font-size:12px;
-    background:var(--panel-2);
-    border:1px solid var(--line);
-    color:var(--muted);
-    padding:7px 12px;
-    border-radius:7px;
-    cursor:pointer;
-    display:flex; align-items:center; gap:6px;
-    transition:all .12s ease;
-  }
-  .sort-btn:hover{ color:var(--text); border-color:#3a4540; }
-  .sort-btn.active{ color:var(--gold); border-color:rgba(240,185,11,0.4); background:rgba(240,185,11,0.06); }
-  .sort-btn .arrow{ font-size:10px; }
+        h1 {
+            margin: 0;
+            font-size: 20px;
+            font-weight: 600;
+        }
 
-  table{ width:100%; border-collapse:collapse; }
-  thead th{
-    text-align:right;
-    font-family:'JetBrains Mono', monospace;
-    font-size:11px;
-    text-transform:uppercase;
-    letter-spacing:0.06em;
-    color:var(--muted);
-    padding:10px 14px;
-    border-bottom:1px solid var(--line);
-    font-weight:500;
-  }
-  thead th:first-child, tbody td:first-child{ text-align:left; }
-  tbody tr{ border-bottom:1px solid var(--line); transition:background .12s ease; }
-  tbody tr:hover{ background:var(--panel-2); }
-  tbody td{ padding:12px 14px; font-family:'JetBrains Mono', monospace; font-size:13px; text-align:right; }
-  td.sym{ text-align:left; font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:13.5px; letter-spacing:0.01em; }
-  td.sym .quote{ color:var(--muted); font-weight:500; font-size:11px; }
-  .pos{ color:var(--green); }
-  .neg{ color:var(--red); }
-  .pill{
-    display:inline-block; padding:2px 7px; border-radius:5px; font-size:11px; margin-left:8px;
-  }
-  .pill.pos{ background:var(--green-dim); }
-  .pill.neg{ background:var(--red-dim); }
+        .badge {
+            background-color: var(--border);
+            color: var(--primary);
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
 
-  .empty{
-    text-align:center; padding:60px 20px; color:var(--muted);
-    font-family:'JetBrains Mono', monospace; font-size:13px;
-    border:1px dashed var(--line); border-radius:10px;
-  }
+        .controls {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            margin-bottom: 20px;
+        }
 
-  footer{
-    margin-top:26px; font-size:11px; color:var(--muted);
-    font-family:'JetBrains Mono', monospace; text-align:center;
-  }
+        button {
+            background-color: var(--primary);
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            font-size: 14px;
+            font-weight: 600;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
 
-  ::-webkit-scrollbar{ width:8px; height:8px; }
-  ::-webkit-scrollbar-thumb{ background:var(--line); border-radius:4px; }
-</style>
+        button:hover {
+            background-color: var(--primary-hover);
+        }
+
+        button:disabled {
+            background-color: var(--text-muted);
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .progress-wrapper {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .progress-text {
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        .progress-bar-bg {
+            width: 100%;
+            background-color: var(--border);
+            border-radius: 4px;
+            height: 10px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background-color: var(--primary);
+            width: 0%;
+            transition: width 0.15s ease-in-out;
+        }
+
+        .table-responsive {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            margin-top: 10px;
+        }
+
+        th, td {
+            padding: 12px 10px;
+            text-align: right;
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+
+        th:first-child, td:first-child {
+            text-align: left;
+        }
+
+        th {
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .sortable {
+            cursor: pointer;
+            user-select: none;
+            transition: color 0.15s;
+        }
+
+        .sortable:hover {
+            color: var(--text-main);
+        }
+
+        .sort-icon {
+            font-size: 11px;
+            margin-left: 3px;
+            color: var(--primary);
+        }
+
+        .green { color: var(--green); }
+        .red { color: var(--red); }
+        .empty-state { text-align: center; color: var(--text-muted); padding: 30px; }
+    </style>
 </head>
 <body>
-<div class="wrap">
 
-  <header>
-    <div>
-      <div class="brand-eyebrow">Binance · USDT-M Futures · 1H</div>
-      <h1>hserus</h1>
-      <div class="sub">
-        Flags symbols where <code>current vol &gt; max(last 5 candles)</code> AND the current candle's color differs from the previous one. Top 250 USDT-margined perpetuals by 24h quote volume, fetched in batches of 10.
-      </div>
+<div class="container">
+    <div class="header-title">
+        <h1>hserus</h1>
+        <span class="badge">• 1H</span>
     </div>
+    
     <div class="controls">
-      <button class="scan-btn" id="scanBtn">Run scan</button>
+        <button id="startBtn" onclick="startScanner()">Start Scan</button>
+        <div class="progress-wrapper">
+            <div class="progress-text" id="progressText">Click "Start Scan" to evaluate.</div>
+            <div class="progress-bar-bg">
+                <div class="progress-bar-fill" id="progressBar"></div>
+            </div>
+        </div>
     </div>
-  </header>
 
-  <div class="progress-panel" id="progressPanel">
-    <div class="progress-top">
-      <div><span class="count" id="progCount">0 / 0</span> <span class="status" id="progStatus">idle</span></div>
-      <div class="hit" id="progHits">0 matches</div>
+    <div class="table-responsive">
+        <table id="resultsTable">
+            <thead>
+                <tr>
+                    <th>Symbol</th>
+                    <th class="sortable" onclick="sortTable('curr_price_chg')">Curr Price % <span class="sort-icon" id="icon_curr_price_chg">↕</span></th>
+                    <th class="sortable" onclick="sortTable('prev_price_chg')">Prev Price % <span class="sort-icon" id="icon_prev_price_chg">↕</span></th>
+                    <th class="sortable" onclick="sortTable('prev_prev_price_chg')">P-Prev Price % <span class="sort-icon" id="icon_prev_prev_price_chg">↕</span></th>
+                    <th class="sortable" onclick="sortTable('curr_vol_chg')">Curr Vol % <span class="sort-icon" id="icon_curr_vol_chg">↕</span></th>
+                </tr>
+            </thead>
+            <tbody id="tableBody">
+                <tr><td colspan="5" class="empty-state">No scan completed yet.</td></tr>
+            </tbody>
+        </table>
     </div>
-    <div class="bar-track"><div class="bar-fill" id="barFill"></div></div>
-    <div class="scan-log" id="scanLog"></div>
-  </div>
-
-  <div class="results-head">
-    <div class="results-title"><span class="n" id="resultCount">0</span> symbols matched</div>
-    <div class="sort-controls">
-      <span class="label">SORT</span>
-      <button class="sort-btn active" id="sortVol" data-key="volChg">Vol chg <span class="arrow">▼</span></button>
-      <button class="sort-btn" id="sortPrice" data-key="priceChg">Price chg <span class="arrow">▼</span></button>
-      <button class="sort-btn" id="sortPrevChg" data-key="prevChg">Prev candle chg <span class="arrow">▼</span></button>
-    </div>
-  </div>
-
-  <div id="tableHost">
-    <div class="empty">No results yet. Run a scan to populate this table.</div>
-  </div>
-
-  <footer>Data via Binance public REST API · candle metrics reflect the current forming 1H candle</footer>
 </div>
 
 <script>
-const BATCH_SIZE = 10;
-const BATCH_DELAY_MS = 150;
-const TOP_N = 250;
+    const API_BASE = 'https://fapi.binance.com';
+    const TIMEFRAME = '1h';
+    const TOP_N_SYMBOLS = 250;
+    const BATCH_SIZE = 10;
+    
+    let scanResults = [];
+    let currentSortColumn = 'curr_vol_chg';
+    let isSortDescending = true;
 
-let results = [];
-let sortKey = 'volChg';
-let sortDir = -1; // -1 desc, 1 asc
-let scanning = false;
+    const startBtn = document.getElementById('startBtn');
+    const progressText = document.getElementById('progressText');
+    const progressBar = document.getElementById('progressBar');
+    const tableBody = document.getElementById('tableBody');
 
-const el = {
-  scanBtn: document.getElementById('scanBtn'),
-  progressPanel: document.getElementById('progressPanel'),
-  progCount: document.getElementById('progCount'),
-  progStatus: document.getElementById('progStatus'),
-  progHits: document.getElementById('progHits'),
-  barFill: document.getElementById('barFill'),
-  scanLog: document.getElementById('scanLog'),
-  resultCount: document.getElementById('resultCount'),
-  tableHost: document.getElementById('tableHost'),
-  sortVol: document.getElementById('sortVol'),
-  sortPrice: document.getElementById('sortPrice'),
-  sortPrevChg: document.getElementById('sortPrevChg'),
-};
+    async function startScanner() {
+        startBtn.disabled = true;
+        tableBody.innerHTML = '';
+        scanResults = [];
+        progressBar.style.width = '0%';
+        
+        try {
+            // 1. Fetch active USDT Perpetuals ranked by 24h volume
+            progressText.innerText = "Fetching active USDT Perpetual pairs from Binance...";
+            const tickerRes = await fetch(`${API_BASE}/fapi/v1/ticker/24hr`);
+            const tickerData = await tickerRes.json();
+            
+            // Filter strictly for USDT Perpetual contracts (excludes delivery futures with '_')
+            const symbols = tickerData
+                .filter(item => item.symbol.endsWith('USDT') && !item.symbol.includes('_'))
+                .sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume))
+                .slice(0, TOP_N_SYMBOLS)
+                .map(item => item.symbol);
 
-function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+            // 2. Scan in concurrent batches of 10
+            let completed = 0;
+            
+            for (let i = 0; i < symbols.length; i += BATCH_SIZE) {
+                const batch = symbols.slice(i, i + BATCH_SIZE);
+                
+                const batchPromises = batch.map(symbol => scanSingleSymbol(symbol));
+                const results = await Promise.all(batchPromises);
+                
+                results.forEach(res => {
+                    if (res !== null) scanResults.push(res);
+                });
 
-function fmtPct(n){
-  const s = (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
-  return s;
-}
+                completed += batch.length;
+                const percentage = Math.round((completed / symbols.length) * 100);
+                progressText.innerText = `Scanning: ${completed} / ${symbols.length} (${percentage}%)`;
+                progressBar.style.width = `${percentage}%`;
+                
+                // Rate-limit safety pause
+                await new Promise(resolve => setTimeout(resolve, 80));
+            }
+            
+            progressText.innerText = `Scan Complete! Found ${scanResults.length} matching setups out of ${symbols.length} scanned.`;
+            sortTable(currentSortColumn, true);
 
-function pctClass(n){ return n >= 0 ? 'pos' : 'neg'; }
-
-async function getTopSymbols(){
-  el.progStatus.textContent = 'fetching futures symbol list…';
-  const [infoRes, tickerRes] = await Promise.all([
-    fetch('https://fapi.binance.com/fapi/v1/exchangeInfo'),
-    fetch('https://fapi.binance.com/fapi/v1/ticker/24hr')
-  ]);
-  if(!infoRes.ok || !tickerRes.ok) throw new Error('Failed to fetch futures symbol list');
-  const info = await infoRes.json();
-  const tickers = await tickerRes.json();
-
-  // Only live, USDT-margined perpetual contracts
-  const validSymbols = new Set(
-    info.symbols
-      .filter(s => s.status === 'TRADING' && s.contractType === 'PERPETUAL' && s.quoteAsset === 'USDT')
-      .map(s => s.symbol)
-  );
-
-  const filtered = tickers.filter(d => validSymbols.has(d.symbol));
-  filtered.sort((a,b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume));
-  return filtered.slice(0, TOP_N).map(d => d.symbol);
-}
-
-async function fetchKlines(symbol){
-  const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=1h&limit=6`;
-  const res = await fetch(url);
-  if(!res.ok) throw new Error('klines fetch failed: ' + symbol);
-  return res.json();
-}
-
-function candleColor(k){
-  const open = parseFloat(k[1]);
-  const close = parseFloat(k[4]);
-  return close >= open ? 'green' : 'red';
-}
-
-async function processSymbol(symbol){
-  try{
-    const klines = await fetchKlines(symbol);
-    if(!klines || klines.length < 6) return null;
-
-    const last5 = klines.slice(0, 5);      // 5 most recent CLOSED candles
-    const prev = klines[4];                // previous closed candle (last of the 5)
-    const current = klines[5];             // current forming candle
-
-    const maxVolLast5 = Math.max(...last5.map(k => parseFloat(k[5])));
-    const currentVol = parseFloat(current[5]);
-    const prevVol = parseFloat(prev[5]);
-
-    const cond1 = currentVol > maxVolLast5;
-    if(!cond1) return { pass:false };
-
-    const currColor = candleColor(current);
-    const prevColor = candleColor(prev);
-    const cond2 = currColor !== prevColor;
-    if(!cond2) return { pass:false };
-
-    const currentOpen = parseFloat(current[1]);
-    const currentClose = parseFloat(current[4]);
-    const prevOpen = parseFloat(prev[1]);
-    const prevClose = parseFloat(prev[4]);
-
-    const priceChg = ((currentClose - currentOpen) / currentOpen) * 100;
-    const volChg = ((currentVol - prevVol) / prevVol) * 100;
-    const prevChg = ((prevClose - prevOpen) / prevOpen) * 100;
-
-    return {
-      pass:true,
-      symbol,
-      priceChg,
-      volChg,
-      prevChg,
-      color: currColor
-    };
-  }catch(e){
-    return null;
-  }
-}
-
-function logScan(symbol, passed){
-  const span = document.createElement('span');
-  span.textContent = symbol.replace('USDT','');
-  if(passed) span.classList.add('pass');
-  el.scanLog.appendChild(span);
-  while(el.scanLog.children.length > 24){
-    el.scanLog.removeChild(el.scanLog.firstChild);
-  }
-}
-
-function sortResults(){
-  results.sort((a,b) => (a[sortKey] - b[sortKey]) * sortDir);
-}
-
-function renderTable(){
-  el.resultCount.textContent = results.length;
-  if(results.length === 0){
-    el.tableHost.innerHTML = '<div class="empty">No matches yet. Symbols satisfying both conditions will appear here as they are found.</div>';
-    return;
-  }
-  sortResults();
-  const rows = results.map(r => {
-    const base = r.symbol.replace('USDT','');
-    return `<tr>
-      <td class="sym">${base}<span class="quote">/USDT</span></td>
-      <td class="${pctClass(r.priceChg)}">${fmtPct(r.priceChg)}</td>
-      <td class="${pctClass(r.volChg)}">${fmtPct(r.volChg)}</td>
-      <td class="${pctClass(r.prevChg)}">${fmtPct(r.prevChg)}</td>
-    </tr>`;
-  }).join('');
-  el.tableHost.innerHTML = `
-    <table>
-      <thead>
-        <tr>
-          <th>Symbol</th>
-          <th>Price chg (current candle)</th>
-          <th>Vol chg (vs prev candle)</th>
-          <th>Prev candle chg</th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>
-  `;
-}
-
-function updateSortButtons(){
-  [el.sortVol, el.sortPrice, el.sortPrevChg].forEach(btn => {
-    const key = btn.dataset.key;
-    btn.classList.toggle('active', key === sortKey);
-    const arrow = btn.querySelector('.arrow');
-    if(key === sortKey){
-      arrow.textContent = sortDir === -1 ? '▼' : '▲';
-    } else {
-      arrow.textContent = '▼';
+        } catch (error) {
+            progressText.innerText = `Error: ${error.message}`;
+            console.error(error);
+        } finally {
+            startBtn.disabled = false;
+        }
     }
-  });
-}
 
-function setSort(key){
-  if(sortKey === key){
-    sortDir *= -1;
-  } else {
-    sortKey = key;
-    sortDir = -1;
-  }
-  updateSortButtons();
-  renderTable();
-}
+    async function scanSingleSymbol(symbol) {
+        try {
+            // Fetch last 4 candles for calculations
+            const res = await fetch(`${API_BASE}/fapi/v1/klines?symbol=${symbol}&interval=${TIMEFRAME}&limit=4`);
+            if (!res.ok) return null;
+            const klines = await res.json();
+            
+            if (!Array.isArray(klines) || klines.length < 3) return null;
 
-el.sortVol.addEventListener('click', () => setSort('volChg'));
-el.sortPrice.addEventListener('click', () => setSort('priceChg'));
-el.sortPrevChg.addEventListener('click', () => setSort('prevChg'));
+            // Structure: [OpenTime, Open, High, Low, Close, Volume, ...]
+            const len = klines.length;
+            const curr = klines[len - 1];      // Current Candle
+            const prev = klines[len - 2];      // Previous Candle
+            const prev_prev = klines[len - 3]; // Prev Prev Candle
 
-async function runScan(){
-  if(scanning) return;
-  scanning = true;
-  el.scanBtn.disabled = true;
-  el.scanBtn.textContent = 'Scanning…';
-  el.progressPanel.classList.add('active');
-  el.scanLog.innerHTML = '';
-  results = [];
-  renderTable();
+            // Current Candle Parsing
+            const curr_open = parseFloat(curr[1]), curr_high = parseFloat(curr[2]), curr_low = parseFloat(curr[3]), curr_close = parseFloat(curr[4]), curr_vol = parseFloat(curr[5]);
+            // Previous Candle Parsing
+            const prev_open = parseFloat(prev[1]), prev_high = parseFloat(prev[2]), prev_low = parseFloat(prev[3]), prev_close = parseFloat(prev[4]), prev_vol = parseFloat(prev[5]);
+            // Prev Prev Candle Parsing
+            const prev_prev_open = parseFloat(prev_prev[1]), prev_prev_high = parseFloat(prev_prev[2]), prev_prev_low = parseFloat(prev_prev[3]), prev_prev_close = parseFloat(prev_prev[4]);
 
-  let symbols = [];
-  try{
-    symbols = await getTopSymbols();
-  }catch(e){
-    el.progStatus.textContent = 'error fetching symbol list — try again';
-    scanning = false;
-    el.scanBtn.disabled = false;
-    el.scanBtn.textContent = 'Run scan';
-    return;
-  }
+            // --- CONDITION 1: Current candle volume is less than previous candle ---
+            if (curr_vol >= prev_vol) {
+                return null;
+            }
 
-  const total = symbols.length;
-  let done = 0;
-  let hits = 0;
+            // --- CONDITION 2: Previous candle colour is different from prev prev candle colour ---
+            const prev_is_green = prev_close >= prev_open;
+            const prev_prev_is_green = prev_prev_close >= prev_prev_open;
 
-  for(let i = 0; i < total; i += BATCH_SIZE){
-    const batch = symbols.slice(i, i + BATCH_SIZE);
-    el.progStatus.textContent = `scanning batch ${Math.floor(i/BATCH_SIZE)+1} of ${Math.ceil(total/BATCH_SIZE)}…`;
+            if (prev_is_green === prev_prev_is_green) {
+                return null;
+            }
 
-    const batchResults = await Promise.all(batch.map(sym => processSymbol(sym)));
+            // --- CONDITION 3: Current candle width (High - Low) is less than previous candle width ---
+            const curr_width = curr_high - curr_low;
+            const prev_width = prev_high - prev_low;
 
-    batch.forEach((sym, idx) => {
-      const r = batchResults[idx];
-      done += 1;
-      const passed = r && r.pass;
-      logScan(sym, passed);
-      if(passed){
-        hits += 1;
-        results.push(r);
-      }
-    });
+            if (curr_width >= prev_width) {
+                return null;
+            }
 
-    el.progCount.textContent = `${done} / ${total}`;
-    el.progHits.textContent = `${hits} match${hits === 1 ? '' : 'es'}`;
-    el.barFill.style.width = `${(done/total*100).toFixed(1)}%`;
-    renderTable();
+            // --- CONDITION 4: Previous candle width is less than prev prev candle width ---
+            const prev_prev_width = prev_prev_high - prev_prev_low;
 
-    if(i + BATCH_SIZE < total){
-      await sleep(BATCH_DELAY_MS);
+            if (prev_width >= prev_prev_width) {
+                return null;
+            }
+
+            // --- CONDITION 5: Prev prev candle price change (%) is at least 2% (Absolute |Change| >= 2%) ---
+            const prev_prev_price_chg = ((prev_prev_close - prev_prev_open) / prev_prev_open) * 100;
+
+            if (Math.abs(prev_prev_price_chg) < 2.0) {
+                return null;
+            }
+
+            // --- DASHBOARD METRICS ---
+            const curr_price_chg = ((curr_close - curr_open) / curr_open) * 100;
+            const prev_price_chg = ((prev_close - prev_open) / prev_open) * 100;
+            const curr_vol_chg = prev_vol > 0 ? ((curr_vol - prev_vol) / prev_vol) * 100 : 0;
+
+            return {
+                symbol,
+                curr_price_chg,
+                prev_price_chg,
+                prev_prev_price_chg,
+                curr_vol_chg
+            };
+
+        } catch (e) {
+            return null;
+        }
     }
-  }
 
-  el.progStatus.textContent = 'scan complete';
-  scanning = false;
-  el.scanBtn.disabled = false;
-  el.scanBtn.textContent = 'Run scan again';
-}
+    function sortTable(column, forceRender = false) {
+        if (!forceRender) {
+            if (currentSortColumn === column) {
+                isSortDescending = !isSortDescending;
+            } else {
+                currentSortColumn = column;
+                isSortDescending = true;
+            }
+        }
 
-el.scanBtn.addEventListener('click', runScan);
-updateSortButtons();
+        document.querySelectorAll('.sort-icon').forEach(icon => icon.innerText = '↕');
+        const activeIcon = document.getElementById(`icon_${column}`);
+        if (activeIcon) activeIcon.innerText = isSortDescending ? '↓' : '↑';
+
+        scanResults.sort((a, b) => {
+            const valA = a[column];
+            const valB = b[column];
+            return isSortDescending ? valB - valA : valA - valB;
+        });
+
+        renderTable();
+    }
+
+    function renderTable() {
+        tableBody.innerHTML = '';
+        
+        if (scanResults.length === 0) {
+            tableBody.innerHTML = `<tr><td colspan="5" class="empty-state">No matching patterns found.</td></tr>`;
+            return;
+        }
+
+        scanResults.forEach(row => {
+            const tr = document.createElement('tr');
+            
+            const formatPct = (val) => {
+                const colorClass = val >= 0 ? 'green' : 'red';
+                const sign = val > 0 ? '+' : '';
+                return `<span class="${colorClass}">${sign}${val.toFixed(2)}%</span>`;
+            };
+
+            tr.innerHTML = `
+                <td><strong>${row.symbol}</strong></td>
+                <td>${formatPct(row.curr_price_chg)}</td>
+                <td>${formatPct(row.prev_price_chg)}</td>
+                <td>${formatPct(row.prev_prev_price_chg)}</td>
+                <td>${formatPct(row.curr_vol_chg)}</td>
+            `;
+            tableBody.appendChild(tr);
+        });
+    }
 </script>
+
 </body>
 </html>
