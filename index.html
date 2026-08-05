@@ -291,7 +291,7 @@
             const prev_prev_open = parseFloat(prev_prev[1]), prev_prev_high = parseFloat(prev_prev[2]), prev_prev_low = parseFloat(prev_prev[3]), prev_prev_close = parseFloat(prev_prev[4]);
 
             // --- CONDITION 1: Current candle volume is less than previous candle ---
-            if (curr_vol >= prev_vol) {
+            if (curr_vol >= prev_vol*1.2) {
                 return null;
             }
 
