@@ -183,10 +183,10 @@
             <thead>
                 <tr>
                     <th>Symbol</th>
-                    <th class="sortable" onclick="sortTable('curr_price_chg')">Price % <span class="sort-icon" id="icon_curr_price_chg">↕</span></th>
-                    <th class="sortable" onclick="sortTable('curr_vol_chg')">Vol % <span class="sort-icon" id="icon_curr_vol_chg">↕</span></th>
-                    <th class="sortable" onclick="sortTable('bb_width_pct')">BB Width % <span class="sort-icon" id="icon_bb_width_pct">↕</span></th>
-                    <th class="sortable" onclick="sortTable('sma_chg_pct')">SMA Chg % <span class="sort-icon" id="icon_sma_chg_pct">↕</span></th>
+                    <th class="sortable" onclick="sortTable('curr_price_chg')">Curr Price % <span class="sort-icon" id="icon_curr_price_chg">↕</span></th>
+                    <th class="sortable" onclick="sortTable('prev_price_chg')">Prev Price % <span class="sort-icon" id="icon_prev_price_chg">↕</span></th>
+                    <th class="sortable" onclick="sortTable('curr_vol_chg')">Curr Vol % <span class="sort-icon" id="icon_curr_vol_chg">↕</span></th>
+                    <th class="sortable" onclick="sortTable('sma_diff_pct')">SMA Diff % <span class="sort-icon" id="icon_sma_diff_pct">↕</span></th>
                 </tr>
             </thead>
             <tbody id="tableBody">
@@ -202,7 +202,7 @@
     const BATCH_SIZE = 10;
 
     let scanResults = [];
-    let currentSortColumn = 'bb_width_pct';
+    let currentSortColumn = 'curr_vol_chg';
     let isSortDescending = true;
 
     const startBtn = document.getElementById('startBtn');
@@ -269,88 +269,84 @@
 
     async function scanSingleSymbol(symbol, timeframe) {
         try {
-            // Fetch 30 candles for the selected timeframe
-            const res = await fetch(`${API_BASE}/fapi/v1/klines?symbol=${symbol}&interval=${timeframe}&limit=30`);
+            // Fetch 25 candles to compute 20 SMA & 8 SMA slope over past 3 candles
+            const res = await fetch(`${API_BASE}/fapi/v1/klines?symbol=${symbol}&interval=${timeframe}&limit=25`);
             if (!res.ok) return null;
 
             const klines = await res.json();
-            if (!Array.isArray(klines) || klines.length < 27) return null;
+            if (!Array.isArray(klines) || klines.length < 24) return null;
 
             const len = klines.length;
-            const currCandle = klines[len - 1];
-            const prevCandle = klines[len - 2];
+            const c0 = klines[len - 1]; // Current candle
+            const c1 = klines[len - 2]; // Previous candle
 
-            const currVol = parseFloat(currCandle[5]);
-            const prevVol = parseFloat(prevCandle[5]);
+            const v0 = parseFloat(c0[5]);
+            const v1 = parseFloat(c1[5]);
 
             // --- CONDITION 1: Current volume > Previous volume ---
-            if (currVol <= prevVol) return null;
+            if (v0 <= v1) return null;
 
+            const o0 = parseFloat(c0[1]), cl0 = parseFloat(c0[4]);
+            const o1 = parseFloat(c1[1]), cl1 = parseFloat(c1[4]);
+
+            const isCurrGreen = cl0 >= o0;
+            const isPrevGreen = cl1 >= o1;
+
+            // --- CONDITION 2: Last 2 candles have different colors ---
+            if (isCurrGreen === isPrevGreen) return null;
+
+            // Price change calculation (Open to Close)
+            const curr_price_chg = ((cl0 - o0) / o0) * 100;
+            const prev_price_chg = ((cl1 - o1) / o1) * 100;
+
+            // --- CONDITION 3: Max absolute close change of last 2 candles > 1.5% ---
+            const maxAbsPriceChg = Math.max(Math.abs(curr_price_chg), Math.abs(prev_price_chg));
+            if (maxAbsPriceChg <= 1.5) return null;
+
+            // Helper to compute SMA for a given window ending at candle index `endIdx`
             const closes = klines.map(k => parseFloat(k[4]));
+            const getSMA = (endIdx, period) => {
+                const slice = closes.slice(endIdx - period + 1, endIdx + 1);
+                return slice.reduce((a, b) => a + b, 0) / period;
+            };
 
-            // Compute 20 SMA values for past 6 candles leading up to previous candle (indices len-7 to len-2)
-            const smaSeries = [];
-            for (let i = len - 7; i <= len - 2; i++) {
-                const windowCloses = closes.slice(i - 19, i + 1);
-                const sum = windowCloses.reduce((a, b) => a + b, 0);
-                smaSeries.push(sum / 20);
+            // Calculate SMA 8 for the last 3 completed candles: len-4, len-3, len-2 (Prev candle)
+            const sma8_3 = getSMA(len - 4, 8);
+            const sma8_2 = getSMA(len - 3, 8);
+            const sma8_1 = getSMA(len - 2, 8); // Previous candle SMA 8
+
+            // Calculate SMA 20 for the previous candle (len-2)
+            const sma20_1 = getSMA(len - 2, 20);
+
+            // SMA 8 direction over last 3 completed candles
+            const isSma8MovingUp = (sma8_1 > sma8_2) && (sma8_2 > sma8_3);
+            const isSma8MovingDown = (sma8_1 < sma8_2) && (sma8_2 < sma8_3);
+
+            // SMA 8 vs SMA 20 position at previous candle
+            const isSma8AboveSma20 = sma8_1 > sma20_1;
+            const isSma8BelowSma20 = sma8_1 < sma20_1;
+
+            // --- CONDITION 4: Directional SMA logic based on current candle color ---
+            if (!isCurrGreen) {
+                // If current candle is RED -> Previous 3 candles SMA 8 moving UP OR SMA 8 above SMA 20
+                if (!isSma8MovingUp && !isSma8AboveSma20) return null;
+            } else {
+                // If current candle is GREEN -> Previous 3 candles SMA 8 moving DOWN OR SMA 8 below SMA 20
+                if (!isSma8MovingDown && !isSma8BelowSma20) return null;
             }
 
-            // --- CONDITION 2: 20 SMA direction over last 6 candles (excluding current) ---
-            let isUpward = true;
-            let isDownward = true;
-
-            for (let i = 1; i < smaSeries.length; i++) {
-                if (smaSeries[i] <= smaSeries[i - 1]) isUpward = false;
-                if (smaSeries[i] >= smaSeries[i - 1]) isDownward = false;
-            }
-
-            if (!isUpward && !isDownward) return null;
-
-            // Calculate current candle 20 SMA & Standard Deviation for Bollinger Bands
-            const currentWindow = closes.slice(len - 20, len);
-            const currentSMA = currentWindow.reduce((a, b) => a + b, 0) / 20;
+            // --- METRICS FOR DASHBOARD ---
+            const curr_vol_chg = v1 > 0 ? ((v0 - v1) / v1) * 100 : 0;
             
-            const variance = currentWindow.reduce((sum, val) => sum + Math.pow(val - currentSMA, 2), 0) / 20;
-            const stdDev = Math.sqrt(variance);
-
-            const upperBB = currentSMA + (2 * stdDev);
-            const lowerBB = currentSMA - (2 * stdDev);
-
-            const currHigh = parseFloat(currCandle[2]);
-            const currLow = parseFloat(currCandle[3]);
-
-            // --- CONDITION 3: Low/High touching or piercing 20 SMA line ---
-            let cond3Passed = false;
-
-            if (isUpward) {
-                // If 20 SMA moving up: Low should touch 20 SMA line (Low <= 20 SMA)
-                cond3Passed = currLow <= currentSMA;
-            } else if (isDownward) {
-                // If 20 SMA moving down: High should touch 20 SMA line (High >= 20 SMA)
-                cond3Passed = currHigh >= currentSMA;
-            }
-
-            if (!cond3Passed) return null;
-
-            // --- DASHBOARD METRICS ---
-            const currOpen = parseFloat(currCandle[1]);
-            const currClose = parseFloat(currCandle[4]);
-
-            const curr_price_chg = ((currClose - currOpen) / currOpen) * 100;
-            const curr_vol_chg = prevVol > 0 ? ((currVol - prevVol) / prevVol) * 100 : 0;
-            const bb_width_pct = ((upperBB - lowerBB) / currentSMA) * 100;
-
-            const prevSMA = smaSeries[smaSeries.length - 1];
-            const prevPrevSMA = smaSeries[smaSeries.length - 2];
-            const sma_chg_pct = ((prevSMA - prevPrevSMA) / prevPrevSMA) * 100;
+            // Distance in % between SMA 8 and SMA 20 at previous candle
+            const sma_diff_pct = sma20_1 > 0 ? ((sma8_1 - sma20_1) / sma20_1) * 100 : 0;
 
             return {
                 symbol,
                 curr_price_chg,
+                prev_price_chg,
                 curr_vol_chg,
-                bb_width_pct,
-                sma_chg_pct,
+                sma_diff_pct,
                 isMatch: true
             };
 
@@ -399,16 +395,12 @@
                 return `<span class="${colorClass}">${sign}${val.toFixed(2)}%</span>`;
             };
 
-            const formatVal = (val) => {
-                return `<span>${val.toFixed(2)}%</span>`;
-            };
-
             tr.innerHTML = `
                 <td><strong>${row.symbol}</strong></td>
                 <td>${formatPct(row.curr_price_chg)}</td>
+                <td>${formatPct(row.prev_price_chg)}</td>
                 <td>${formatPct(row.curr_vol_chg)}</td>
-                <td>${formatVal(row.bb_width_pct)}</td>
-                <td>${formatPct(row.sma_chg_pct)}</td>
+                <td>${formatPct(row.sma_diff_pct)}</td>
             `;
             tableBody.appendChild(tr);
         });
