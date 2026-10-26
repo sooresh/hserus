@@ -343,7 +343,7 @@
                         const prevClose = closes[prevIdx];
 
                         // --- Condition (1): Current vol > Prev vol * 1.5 ---
-                        if (!(currVol > prevVol * 1.5)) return null;
+                        if (!(currVol > prevVol * 1.25)) return null;
 
                         // --- Condition (2): Abs(Current close chg) > 1% ---
                         const closeChgPct = ((currClose - prevClose) / prevClose) * 100;
