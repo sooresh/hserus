@@ -19,7 +19,7 @@
         }
 
         .container {
-            max-width: 1000px;
+            max-width: 1100px;
             margin: 0 auto;
         }
 
@@ -164,20 +164,7 @@
             font-size: 0.8rem;
         }
         .badge-false {
-            background-color: rgba(246, 70, 93, 0.15);
-            color: #f6465d;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-weight: bold;
-            font-size: 0.8rem;
-        }
-        .badge-type {
-            background-color: rgba(240, 185, 11, 0.15);
-            color: #f0b90b;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-weight: bold;
-            font-size: 0.8rem;
+            color: #848e9c;
         }
 
         .empty-state {
@@ -219,8 +206,8 @@
                     <th>Symbol</th>
                     <th class="sortable" onclick="sortTable('priceChg')">Price Chg % ⇕</th>
                     <th class="sortable" onclick="sortTable('volChg')">Vol Chg % ⇕</th>
-                    <th class="sortable" onclick="sortTable('wickDom')">Wick Dom ⇕</th>
-                    <th class="sortable" onclick="sortTable('triggerType')">Trigger ⇕</th>
+                    <th class="sortable" onclick="sortTable('bodyRatio')">Body Ratio ⇕</th>
+                    <th class="sortable" onclick="sortTable('prevCloseCheck')">Prev SMA 20 ⇕</th>
                 </tr>
             </thead>
             <tbody id="resultsTable">
@@ -237,7 +224,7 @@
     let currentSortColumn = '';
     let currentSortAsc = false;
 
-    // Technical Analysis Calculation Helpers
+    // Technical Analysis Helpers
     function calculateSMA(closes, period) {
         let sma = [];
         for (let i = 0; i < closes.length; i++) {
@@ -254,30 +241,23 @@
         return sma;
     }
 
-    function calculateBollingerBands(closes, period = 20, stdDevMult = 2) {
-        const sma = calculateSMA(closes, period);
-        let upper = [];
-        let lower = [];
-
-        for (let i = 0; i < closes.length; i++) {
-            if (i < period - 1) {
-                upper.push(null);
-                lower.push(null);
-                continue;
+    // Check trend direction over the last 5 candles (4 transitions)
+    // direction: 'descending' (<) or 'ascending' (>)
+    // Returns true if condition met for at least 3 out of last 5 candles
+    function checkTrend(smaArr, currIdx, direction) {
+        let count = 0;
+        for (let j = 0; j < 4; j++) {
+            let p1 = currIdx - 4 + j;
+            let p2 = currIdx - 4 + j + 1;
+            if (smaArr[p1] !== null && smaArr[p2] !== null) {
+                if (direction === 'descending' && smaArr[p2] < smaArr[p1]) count++;
+                if (direction === 'ascending' && smaArr[p2] > smaArr[p1]) count++;
             }
-            let sumSquareDiffs = 0;
-            for (let j = 0; j < period; j++) {
-                sumSquareDiffs += Math.pow(closes[i - j] - sma[i], 2);
-            }
-            const stdDev = Math.sqrt(sumSquareDiffs / period);
-            upper.push(sma[i] + (stdDev * stdDevMult));
-            lower.push(sma[i] - (stdDev * stdDevMult));
         }
-
-        return { sma, upper, lower };
+        return count >= 3;
     }
 
-    // Main Scanning Logic
+    // Main Scanning Process
     async function startScan() {
         const scanBtn = document.getElementById('scanBtn');
         const timeframeSelect = document.getElementById('timeframe');
@@ -288,12 +268,12 @@
 
         const interval = timeframeSelect.value;
 
-        // UI Reset
+        // UI State Reset
         scanBtn.disabled = true;
         matchedResults = [];
         resultsTable.innerHTML = '';
         progressBar.style.width = '0%';
-        progressText.innerText = 'Fetching top 250 USDT perpetual pairs by volume...';
+        progressText.innerText = 'Fetching top 250 USDT perpetual futures by volume...';
         progressCount.innerText = '0 / 250';
 
         try {
@@ -312,118 +292,80 @@
 
             progressText.innerText = 'Scanning symbols...';
 
-            // Process symbols in batches of 10
+            // Process symbols in batches of 10 concurrently
             for (let i = 0; i < totalSymbols; i += batchSize) {
                 const batch = top250Symbols.slice(i, i + batchSize);
 
                 const batchPromises = batch.map(async (symbol) => {
                     try {
-                        // Request klines (limit 25 is enough for SMA 20 calculation)
-                        const klineRes = await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=25`);
+                        // Request 70 candles to safely support 50 SMA calculation and 5-candle lookback
+                        const klineRes = await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=70`);
                         const klines = await klineRes.json();
 
-                        if (!klines || klines.length < 25) return null;
+                        if (!klines || klines.length < 60) return null;
 
-                        // Parse candle values
                         const opens = klines.map(k => parseFloat(k[1]));
-                        const highs = klines.map(k => parseFloat(k[2]));
-                        const lows = klines.map(k => parseFloat(k[3]));
                         const closes = klines.map(k => parseFloat(k[4]));
                         const volumes = klines.map(k => parseFloat(k[5]));
 
                         const currIdx = klines.length - 1;
                         const prevIdx = currIdx - 1;
 
-                        const currVol = volumes[currIdx];
-                        const prevVol = volumes[prevIdx];
                         const currOpen = opens[currIdx];
-                        const currHigh = highs[currIdx];
-                        const currLow = lows[currIdx];
                         const currClose = closes[currIdx];
+                        const prevOpen = opens[prevIdx];
                         const prevClose = closes[prevIdx];
 
-                        // --- Condition (1): Current vol > Prev vol * 1.5 ---
-                        if (!(currVol > prevVol * 1.25)) return null;
+                        const currVol = volumes[currIdx];
+                        const prevVol = volumes[prevIdx];
 
-                        // --- Condition (2): Abs(Current close chg) > 1% ---
-                        const closeChgPct = ((currClose - prevClose) / prevClose) * 100;
-                        if (Math.abs(closeChgPct) <= 1.0) return null;
-
-                        // Technical indicators calculation
-                        const { sma, upper, lower } = calculateBollingerBands(closes, 20, 2);
-
-                        const currUpper = upper[currIdx];
-                        const prevUpper = upper[prevIdx];
-                        const currLower = lower[currIdx];
-                        const prevLower = lower[prevIdx];
-                        const currSMA = sma[currIdx];
+                        // --- Condition (1): Current body length > Previous body length * 2.3 ---
+                        const currBody = Math.abs(currClose - currOpen);
+                        const prevBody = Math.abs(prevClose - prevOpen);
+                        if (prevBody === 0) return null;
+                        if (!(currBody > prevBody * 2.3)) return null;
 
                         const isGreen = currClose >= currOpen;
                         const isRed = !isGreen;
 
-                        // --- Condition (3): ---
-                        // Green candle -> Upper BB should NOT be increasing (currUpper <= prevUpper)
-                        // Red candle   -> Lower BB should NOT be decreasing (currLower >= prevLower)
-                        if (isGreen && (currUpper > prevUpper)) return null;
-                        if (isRed && (currLower < prevLower)) return null;
+                        // Calculate SMAs
+                        const sma8 = calculateSMA(closes, 8);
+                        const sma20 = calculateSMA(closes, 20);
+                        const sma50 = calculateSMA(closes, 50);
 
-                        // --- Condition (4): Sequential sub-condition evaluation ---
-                        let triggerType = null;
-                        const maxAllowedDist = 0.15 * Math.abs(closeChgPct);
+                        if (sma8[currIdx] === null || sma50[currIdx] === null) return null;
 
-                        if (isGreen) {
-                            // (4a) Open & Close below SMA 20, High > SMA 20, Dist <= 15% of Close Change %
-                            const distFromSMA = (Math.abs(currClose - currSMA) / currClose) * 100;
-                            if (currOpen < currSMA && currClose < currSMA && currHigh > currSMA && distFromSMA <= maxAllowedDist) {
-                                triggerType = 'SMA 20';
-                            } 
-                            // (4b) Open & Close below Upper BB, High > Upper BB, Dist <= 15% of Close Change %
-                            else {
-                                const distFromUpper = (Math.abs(currClose - currUpper) / currClose) * 100;
-                                if (currOpen < currUpper && currClose < currUpper && currHigh > currUpper && distFromUpper <= maxAllowedDist) {
-                                    triggerType = 'BB';
-                                }
-                            }
-                        } else {
-                            // (4c) Open & Close above SMA 20, Low < SMA 20, Dist <= 15% of Close Change %
-                            const distFromSMA = (Math.abs(currClose - currSMA) / currClose) * 100;
-                            if (currOpen > currSMA && currClose > currSMA && currLow < currSMA && distFromSMA <= maxAllowedDist) {
-                                triggerType = 'SMA 20';
-                            } 
-                            // (4d) Open & Close above Lower BB, Low < Lower BB, Dist <= 15% of Close Change %
-                            else {
-                                const distFromLower = (Math.abs(currClose - currLower) / currClose) * 100;
-                                if (currOpen > currLower && currClose > currLower && currLow < currLower && distFromLower <= maxAllowedDist) {
-                                    triggerType = 'BB';
-                                }
-                            }
-                        }
+                        // --- Condition (2): 8 SMA trend over last 5 candles ---
+                        const trendDir = isGreen ? 'descending' : 'ascending';
+                        if (!checkTrend(sma8, currIdx, trendDir)) return null;
 
-                        // Exit if none of the 4a/4b/4c/4d conditions matched
-                        if (!triggerType) return null;
+                        // --- Condition (3): 20 SMA or 50 SMA trend over last 5 candles ---
+                        const sma20Valid = checkTrend(sma20, currIdx, trendDir);
+                        const sma50Valid = checkTrend(sma50, currIdx, trendDir);
+                        if (!(sma20Valid || sma50Valid)) return null;
 
-                        // --- Dashboard Metrics Calculation ---
-                        // Wick Dominance Logic:
-                        // Green candle: Lower Wick > Upper Wick
-                        // Red candle: Upper Wick > Lower Wick
-                        let upperWick = currHigh - Math.max(currOpen, currClose);
-                        let lowerWick = Math.min(currOpen, currClose) - currLow;
-
-                        let wickDom = false;
-                        if (isGreen && lowerWick > upperWick) {
-                            wickDom = true;
-                        } else if (isRed && upperWick > lowerWick) {
-                            wickDom = true;
-                        }
-
+                        // Dashboard data preparation
+                        const priceChgPct = ((currClose - prevClose) / prevClose) * 100;
                         const volChgPct = ((currVol - prevVol) / prevVol) * 100;
+                        const bodyRatio = currBody / prevBody;
+
+                        // Dashboard Column: prev close vs 20 sma check
+                        let prevCloseCheck = false;
+                        const prevSMA20 = sma20[prevIdx];
+                        if (prevSMA20 !== null) {
+                            if (isGreen && prevClose < prevSMA20) {
+                                prevCloseCheck = true;
+                            } else if (isRed && prevClose > prevSMA20) {
+                                prevCloseCheck = true;
+                            }
+                        }
 
                         return {
                             symbol: symbol,
-                            priceChg: closeChgPct,
+                            priceChg: priceChgPct,
                             volChg: volChgPct,
-                            wickDom: wickDom,
-                            triggerType: triggerType
+                            bodyRatio: bodyRatio,
+                            prevCloseCheck: prevCloseCheck
                         };
 
                     } catch (err) {
@@ -438,7 +380,7 @@
                     if (res !== null) matchedResults.push(res);
                 });
 
-                // Update Progress Controls
+                // Update Progress UI
                 const scannedCount = Math.min(i + batchSize, totalSymbols);
                 const percent = (scannedCount / totalSymbols) * 100;
                 progressBar.style.width = `${percent}%`;
@@ -451,18 +393,18 @@
 
         } catch (error) {
             console.error('Scan Error:', error);
-            progressText.innerText = 'Scan interrupted. See console for details.';
+            progressText.innerText = 'Scan failed. Check console.';
         } finally {
             scanBtn.disabled = false;
         }
     }
 
-    // Dashboard Table Logic & Sorting
+    // Render Table & Sorting Logic
     function renderTable() {
         const resultsTable = document.getElementById('resultsTable');
 
         if (matchedResults.length === 0) {
-            resultsTable.innerHTML = `<tr><td colspan="5" class="empty-state">No matching setups found.</td></tr>`;
+            resultsTable.innerHTML = `<tr><td colspan="5" class="empty-state">No matching symbols found.</td></tr>`;
             return;
         }
 
@@ -470,7 +412,7 @@
         matchedResults.forEach(item => {
             const priceClass = item.priceChg >= 0 ? 'text-green' : 'text-red';
             const priceSign = item.priceChg >= 0 ? '+' : '';
-            const wickBadge = item.wickDom 
+            const checkBadge = item.prevCloseCheck 
                 ? '<span class="badge-true">TRUE</span>' 
                 : '<span class="badge-false">FALSE</span>';
 
@@ -479,8 +421,8 @@
                     <td><strong>${item.symbol}</strong></td>
                     <td class="${priceClass}">${priceSign}${item.priceChg.toFixed(2)}%</td>
                     <td class="text-green">+${item.volChg.toFixed(1)}%</td>
-                    <td>${wickBadge}</td>
-                    <td><span class="badge-type">${item.triggerType}</span></td>
+                    <td>${item.bodyRatio.toFixed(2)}x</td>
+                    <td>${checkBadge}</td>
                 </tr>
             `;
         });
@@ -505,10 +447,6 @@
             if (typeof valA === 'boolean') {
                 valA = valA ? 1 : 0;
                 valB = valB ? 1 : 0;
-            }
-
-            if (typeof valA === 'string') {
-                return currentSortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
             }
 
             return currentSortAsc ? valA - valB : valB - valA;
