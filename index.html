@@ -19,7 +19,7 @@
         }
 
         .container {
-            max-width: 1100px;
+            max-width: 1200px;
             margin: 0 auto;
         }
 
@@ -207,12 +207,13 @@
                     <th class="sortable" onclick="sortTable('priceChg')">Price Chg % ⇕</th>
                     <th class="sortable" onclick="sortTable('volChg')">Vol Chg % ⇕</th>
                     <th class="sortable" onclick="sortTable('bodyRatio')">Body Ratio ⇕</th>
+                    <th class="sortable" onclick="sortTable('wickRatio')">Wick Ratio ⇕</th>
                     <th class="sortable" onclick="sortTable('prevCloseCheck')">Prev SMA 20 ⇕</th>
                 </tr>
             </thead>
             <tbody id="resultsTable">
                 <tr>
-                    <td colspan="5" class="empty-state">Click "Scan Now".</td>
+                    <td colspan="6" class="empty-state">Click "Scan Now".</td>
                 </tr>
             </tbody>
         </table>
@@ -242,8 +243,6 @@
     }
 
     // Check trend direction over the last 5 candles (4 transitions)
-    // direction: 'descending' (<) or 'ascending' (>)
-    // Returns true if condition met for at least 3 out of last 5 candles
     function checkTrend(smaArr, currIdx, direction) {
         let count = 0;
         for (let j = 0; j < 4; j++) {
@@ -298,13 +297,14 @@
 
                 const batchPromises = batch.map(async (symbol) => {
                     try {
-                        // Request 70 candles to safely support 50 SMA calculation and 5-candle lookback
                         const klineRes = await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=70`);
                         const klines = await klineRes.json();
 
                         if (!klines || klines.length < 60) return null;
 
                         const opens = klines.map(k => parseFloat(k[1]));
+                        const highs = klines.map(k => parseFloat(k[2]));
+                        const lows = klines.map(k => parseFloat(k[3]));
                         const closes = klines.map(k => parseFloat(k[4]));
                         const volumes = klines.map(k => parseFloat(k[5]));
 
@@ -312,6 +312,8 @@
                         const prevIdx = currIdx - 1;
 
                         const currOpen = opens[currIdx];
+                        const currHigh = highs[currIdx];
+                        const currLow = lows[currIdx];
                         const currClose = closes[currIdx];
                         const prevOpen = opens[prevIdx];
                         const prevClose = closes[prevIdx];
@@ -319,14 +321,21 @@
                         const currVol = volumes[currIdx];
                         const prevVol = volumes[prevIdx];
 
-                        // --- Condition (1): Current body length > Previous body length * 2.3 ---
+                        const isGreen = currClose >= currOpen;
+                        const isRed = !isGreen;
+
+                        // --- Condition (1): Wick Dominance Check (New 1st Condition) ---
+                        const upperWick = currHigh - Math.max(currOpen, currClose);
+                        const lowerWick = Math.min(currOpen, currClose) - currLow;
+
+                        if (isGreen && !(upperWick > lowerWick)) return null;
+                        if (isRed && !(lowerWick > upperWick)) return null;
+
+                        // --- Condition (2): Current body length > Previous body length * 2.3 ---
                         const currBody = Math.abs(currClose - currOpen);
                         const prevBody = Math.abs(prevClose - prevOpen);
                         if (prevBody === 0) return null;
                         if (!(currBody > prevBody * 2.3)) return null;
-
-                        const isGreen = currClose >= currOpen;
-                        const isRed = !isGreen;
 
                         // Calculate SMAs
                         const sma8 = calculateSMA(closes, 8);
@@ -335,11 +344,11 @@
 
                         if (sma8[currIdx] === null || sma50[currIdx] === null) return null;
 
-                        // --- Condition (2): 8 SMA trend over last 5 candles ---
+                        // --- Condition (3): 8 SMA trend over last 5 candles ---
                         const trendDir = isGreen ? 'descending' : 'ascending';
                         if (!checkTrend(sma8, currIdx, trendDir)) return null;
 
-                        // --- Condition (3): 20 SMA or 50 SMA trend over last 5 candles ---
+                        // --- Condition (4): 20 SMA or 50 SMA trend over last 5 candles ---
                         const sma20Valid = checkTrend(sma20, currIdx, trendDir);
                         const sma50Valid = checkTrend(sma50, currIdx, trendDir);
                         if (!(sma20Valid || sma50Valid)) return null;
@@ -349,7 +358,12 @@
                         const volChgPct = ((currVol - prevVol) / prevVol) * 100;
                         const bodyRatio = currBody / prevBody;
 
-                        // Dashboard Column: prev close vs 20 sma check
+                        // Wick Ratio: Bigger Wick / Smaller Wick
+                        const biggerWick = Math.max(upperWick, lowerWick);
+                        const smallerWick = Math.min(upperWick, lowerWick);
+                        const wickRatio = smallerWick === 0 ? biggerWick : (biggerWick / smallerWick);
+
+                        // Previous close vs 20 SMA check
                         let prevCloseCheck = false;
                         const prevSMA20 = sma20[prevIdx];
                         if (prevSMA20 !== null) {
@@ -365,6 +379,7 @@
                             priceChg: priceChgPct,
                             volChg: volChgPct,
                             bodyRatio: bodyRatio,
+                            wickRatio: wickRatio,
                             prevCloseCheck: prevCloseCheck
                         };
 
@@ -404,7 +419,7 @@
         const resultsTable = document.getElementById('resultsTable');
 
         if (matchedResults.length === 0) {
-            resultsTable.innerHTML = `<tr><td colspan="5" class="empty-state">No matching symbols found.</td></tr>`;
+            resultsTable.innerHTML = `<tr><td colspan="6" class="empty-state">No matching symbols found.</td></tr>`;
             return;
         }
 
@@ -422,6 +437,7 @@
                     <td class="${priceClass}">${priceSign}${item.priceChg.toFixed(2)}%</td>
                     <td class="text-green">+${item.volChg.toFixed(1)}%</td>
                     <td>${item.bodyRatio.toFixed(2)}x</td>
+                    <td>${item.wickRatio.toFixed(2)}x</td>
                     <td>${checkBadge}</td>
                 </tr>
             `;
