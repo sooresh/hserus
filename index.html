@@ -154,18 +154,6 @@
 
         .text-green { color: #0ecb81; }
         .text-red { color: #f6465d; }
-        
-        .badge-true {
-            background-color: rgba(14, 203, 129, 0.15);
-            color: #0ecb81;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-weight: bold;
-            font-size: 0.8rem;
-        }
-        .badge-false {
-            color: #848e9c;
-        }
 
         .empty-state {
             text-align: center;
@@ -207,13 +195,12 @@
                     <th class="sortable" onclick="sortTable('priceChg')">Price Chg % ⇕</th>
                     <th class="sortable" onclick="sortTable('volChg')">Vol Chg % ⇕</th>
                     <th class="sortable" onclick="sortTable('bodyRatio')">Body Ratio ⇕</th>
-                    <th class="sortable" onclick="sortTable('wickRatio')">Wick Ratio ⇕</th>
-                    <th class="sortable" onclick="sortTable('prevCloseCheck')">Prev SMA 20 ⇕</th>
+                    <th class="sortable" onclick="sortTable('smaStrength')">SMA 8 Str % ⇕</th>
                 </tr>
             </thead>
             <tbody id="resultsTable">
                 <tr>
-                    <td colspan="6" class="empty-state">Click "Scan Now".</td>
+                    <td colspan="5" class="empty-state">Click "Scan Now".</td>
                 </tr>
             </tbody>
         </table>
@@ -242,7 +229,7 @@
         return sma;
     }
 
-    // Check trend direction over the last 5 candles (4 transitions)
+    // Check trend over last 5 candles (4 transitions)
     function checkTrend(smaArr, currIdx, direction) {
         let count = 0;
         for (let j = 0; j < 4; j++) {
@@ -276,7 +263,6 @@
         progressCount.innerText = '0 / 250';
 
         try {
-            // Fetch top 250 USDT Perpetual Futures by 24h Volume
             const tickerResponse = await fetch('https://fapi.binance.com/fapi/v1/ticker/24hr');
             const tickers = await tickerResponse.json();
 
@@ -291,29 +277,27 @@
 
             progressText.innerText = 'Scanning symbols...';
 
-            // Process symbols in batches of 10 concurrently
             for (let i = 0; i < totalSymbols; i += batchSize) {
                 const batch = top250Symbols.slice(i, i + batchSize);
 
                 const batchPromises = batch.map(async (symbol) => {
                     try {
+                        // Request 70 candles to securely compute 50 SMA and lookbacks
                         const klineRes = await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=70`);
                         const klines = await klineRes.json();
 
                         if (!klines || klines.length < 60) return null;
 
                         const opens = klines.map(k => parseFloat(k[1]));
-                        const highs = klines.map(k => parseFloat(k[2]));
-                        const lows = klines.map(k => parseFloat(k[3]));
                         const closes = klines.map(k => parseFloat(k[4]));
                         const volumes = klines.map(k => parseFloat(k[5]));
 
                         const currIdx = klines.length - 1;
                         const prevIdx = currIdx - 1;
+                        const prevPrevIdx = currIdx - 2;
+                        const prevPrevPrevIdx = currIdx - 3;
 
                         const currOpen = opens[currIdx];
-                        const currHigh = highs[currIdx];
-                        const currLow = lows[currIdx];
                         const currClose = closes[currIdx];
                         const prevOpen = opens[prevIdx];
                         const prevClose = closes[prevIdx];
@@ -324,18 +308,45 @@
                         const isGreen = currClose >= currOpen;
                         const isRed = !isGreen;
 
-                        // --- Condition (1): Wick Dominance Check (New 1st Condition) ---
-                        const upperWick = currHigh - Math.max(currOpen, currClose);
-                        const lowerWick = Math.min(currOpen, currClose) - currLow;
-
-                        if (isGreen && !(upperWick > lowerWick)) return null;
-                        if (isRed && !(lowerWick > upperWick)) return null;
-
-                        // --- Condition (2): Current body length > Previous body length * 2.3 ---
+                        // --- Condition (1): Current body length > 2 * previous body length ---
                         const currBody = Math.abs(currClose - currOpen);
                         const prevBody = Math.abs(prevClose - prevOpen);
                         if (prevBody === 0) return null;
-                        if (!(currBody > prevBody * 2.3)) return null;
+                        if (!(currBody > prevBody * 2)) return null;
+
+                        // --- Condition (2): Absolute value of one of the last 4 candles close chg >= 1% ---
+                        let hasValidChg = false;
+                        for (let offset = 0; offset <= 3; offset++) {
+                            const idx = currIdx - offset;
+                            const cClose = closes[idx];
+                            const cOpen = opens[idx];
+                            const cPrevClose = closes[idx - 1];
+                            const chgPct = ((cClose - cPrevClose) / cPrevClose) * 100;
+                            if (Math.abs(chgPct) >= 1.0) {
+                                hasValidChg = true;
+                                break;
+                            }
+                        }
+                        if (!hasValidChg) return null;
+
+                        // --- Condition (3): Lookback between Prev-Prev & Prev-Prev-Prev biggest candle ---
+                        const ppClose = closes[prevPrevIdx];
+                        const ppPrevClose = closes[prevPrevIdx - 1];
+                        const ppChg = ((ppClose - ppPrevClose) / ppPrevClose) * 100;
+
+                        const pppClose = closes[prevPrevPrevIdx];
+                        const pppPrevClose = closes[prevPrevPrevIdx - 1];
+                        const pppChg = ((pppClose - pppPrevClose) / pppPrevClose) * 100;
+
+                        if (isGreen) {
+                            // Find biggest candle between pp and ppp (most negative change)
+                            const targetChg = Math.min(ppChg, pppChg);
+                            if (!(targetChg <= -0.7)) return null;
+                        } else {
+                            // Find biggest candle between pp and ppp (most positive change)
+                            const targetChg = Math.max(ppChg, pppChg);
+                            if (!(targetChg >= 0.7)) return null;
+                        }
 
                         // Calculate SMAs
                         const sma8 = calculateSMA(closes, 8);
@@ -344,43 +355,37 @@
 
                         if (sma8[currIdx] === null || sma50[currIdx] === null) return null;
 
-                        // --- Condition (3): 8 SMA trend over last 5 candles ---
-                        const trendDir = isGreen ? 'descending' : 'ascending';
-                        if (!checkTrend(sma8, currIdx, trendDir)) return null;
+                        // --- Condition (4): 8 SMA of previous candle direction ---
+                        const prevSMA8 = sma8[prevIdx];
+                        const prevPrevSMA8 = sma8[prevIdx - 1];
+                        if (prevSMA8 === null || prevPrevSMA8 === null) return null;
 
-                        // --- Condition (4): 20 SMA or 50 SMA trend over last 5 candles ---
+                        const sma8Decreasing = prevSMA8 < prevPrevSMA8;
+                        const sma8Increasing = prevSMA8 > prevPrevSMA8;
+
+                        if (isGreen && !sma8Decreasing) return null;
+                        if (isRed && !sma8Increasing) return null;
+
+                        // --- Condition (5): 20 SMA or 50 SMA trend over last 5 candles ---
+                        const trendDir = isGreen ? 'descending' : 'ascending';
                         const sma20Valid = checkTrend(sma20, currIdx, trendDir);
                         const sma50Valid = checkTrend(sma50, currIdx, trendDir);
                         if (!(sma20Valid || sma50Valid)) return null;
 
-                        // Dashboard data preparation
+                        // Dashboard metrics
                         const priceChgPct = ((currClose - prevClose) / prevClose) * 100;
                         const volChgPct = ((currVol - prevVol) / prevVol) * 100;
                         const bodyRatio = currBody / prevBody;
 
-                        // Wick Ratio: Bigger Wick / Smaller Wick
-                        const biggerWick = Math.max(upperWick, lowerWick);
-                        const smallerWick = Math.min(upperWick, lowerWick);
-                        const wickRatio = smallerWick === 0 ? biggerWick : (biggerWick / smallerWick);
-
-                        // Previous close vs 20 SMA check
-                        let prevCloseCheck = false;
-                        const prevSMA20 = sma20[prevIdx];
-                        if (prevSMA20 !== null) {
-                            if (isGreen && prevClose < prevSMA20) {
-                                prevCloseCheck = true;
-                            } else if (isRed && prevClose > prevSMA20) {
-                                prevCloseCheck = true;
-                            }
-                        }
+                        // Strength of prev candle 8 SMA line (percentage slope between prev-prev and prev)
+                        const sma8Strength = ((prevSMA8 - prevPrevSMA8) / prevPrevSMA8) * 100;
 
                         return {
                             symbol: symbol,
                             priceChg: priceChgPct,
                             volChg: volChgPct,
                             bodyRatio: bodyRatio,
-                            wickRatio: wickRatio,
-                            prevCloseCheck: prevCloseCheck
+                            smaStrength: sma8Strength
                         };
 
                     } catch (err) {
@@ -419,7 +424,7 @@
         const resultsTable = document.getElementById('resultsTable');
 
         if (matchedResults.length === 0) {
-            resultsTable.innerHTML = `<tr><td colspan="6" class="empty-state">No matching symbols found.</td></tr>`;
+            resultsTable.innerHTML = `<tr><td colspan="5" class="empty-state">No matching symbols found.</td></tr>`;
             return;
         }
 
@@ -427,9 +432,8 @@
         matchedResults.forEach(item => {
             const priceClass = item.priceChg >= 0 ? 'text-green' : 'text-red';
             const priceSign = item.priceChg >= 0 ? '+' : '';
-            const checkBadge = item.prevCloseCheck 
-                ? '<span class="badge-true">TRUE</span>' 
-                : '<span class="badge-false">FALSE</span>';
+            const strengthClass = item.smaStrength >= 0 ? 'text-green' : 'text-red';
+            const strengthSign = item.smaStrength >= 0 ? '+' : '';
 
             html += `
                 <tr>
@@ -437,8 +441,7 @@
                     <td class="${priceClass}">${priceSign}${item.priceChg.toFixed(2)}%</td>
                     <td class="text-green">+${item.volChg.toFixed(1)}%</td>
                     <td>${item.bodyRatio.toFixed(2)}x</td>
-                    <td>${item.wickRatio.toFixed(2)}x</td>
-                    <td>${checkBadge}</td>
+                    <td class="${strengthClass}">${strengthSign}${item.smaStrength.toFixed(3)}%</td>
                 </tr>
             `;
         });
@@ -459,12 +462,6 @@
         matchedResults.sort((a, b) => {
             let valA = a[column];
             let valB = b[column];
-
-            if (typeof valA === 'boolean') {
-                valA = valA ? 1 : 0;
-                valB = valB ? 1 : 0;
-            }
-
             return currentSortAsc ? valA - valB : valB - valA;
         });
 
