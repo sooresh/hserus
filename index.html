@@ -154,6 +154,18 @@
 
         .text-green { color: #0ecb81; }
         .text-red { color: #f6465d; }
+        
+        .badge-true {
+            background-color: rgba(14, 203, 129, 0.15);
+            color: #0ecb81;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.8rem;
+        }
+        .badge-false {
+            color: #848e9c;
+        }
 
         .empty-state {
             text-align: center;
@@ -192,10 +204,10 @@
             <thead>
                 <tr>
                     <th>Symbol</th>
-                    <th class="sortable" onclick="sortTable('priceChg')">Price Chg % ⇕</th>
-                    <th class="sortable" onclick="sortTable('volChg')">Vol Chg % ⇕</th>
-                    <th class="sortable" onclick="sortTable('bodyRatio')">Body Ratio ⇕</th>
-                    <th class="sortable" onclick="sortTable('smaStrength')">SMA 8 Str % ⇕</th>
+                    <th class="sortable" onclick="sortTable('currPriceChg')">Curr Prc Chg % ⇕</th>
+                    <th class="sortable" onclick="sortTable('currVolChg')">Curr Vol Chg % ⇕</th>
+                    <th class="sortable" onclick="sortTable('prevVolChg')">Prev Vol Chg % ⇕</th>
+                    <th class="sortable" onclick="sortTable('smaCheck')">SMA 20 Chk ⇕</th>
                 </tr>
             </thead>
             <tbody id="resultsTable">
@@ -229,18 +241,34 @@
         return sma;
     }
 
-    // Check trend over last 5 candles (4 transitions)
-    function checkTrend(smaArr, currIdx, direction) {
-        let count = 0;
-        for (let j = 0; j < 4; j++) {
-            let p1 = currIdx - 4 + j;
-            let p2 = currIdx - 4 + j + 1;
-            if (smaArr[p1] !== null && smaArr[p2] !== null) {
-                if (direction === 'descending' && smaArr[p2] < smaArr[p1]) count++;
-                if (direction === 'ascending' && smaArr[p2] > smaArr[p1]) count++;
+    function calculateATR(highs, lows, closes, period = 14) {
+        let trs = [];
+        for (let i = 0; i < highs.length; i++) {
+            if (i === 0) {
+                trs.push(highs[i] - lows[i]);
+            } else {
+                let tr = Math.max(
+                    highs[i] - lows[i],
+                    Math.abs(highs[i] - closes[i - 1]),
+                    Math.abs(lows[i] - closes[i - 1])
+                );
+                trs.push(tr);
             }
         }
-        return count >= 3;
+
+        let atr = [];
+        for (let i = 0; i < trs.length; i++) {
+            if (i < period - 1) {
+                atr.push(null);
+                continue;
+            }
+            let sum = 0;
+            for (let j = 0; j < period; j++) {
+                sum += trs[i - j];
+            }
+            atr.push(sum / period);
+        }
+        return atr;
     }
 
     // Main Scanning Process
@@ -254,7 +282,7 @@
 
         const interval = timeframeSelect.value;
 
-        // UI State Reset
+        // UI Reset
         scanBtn.disabled = true;
         matchedResults = [];
         resultsTable.innerHTML = '';
@@ -282,110 +310,91 @@
 
                 const batchPromises = batch.map(async (symbol) => {
                     try {
-                        // Request 70 candles to securely compute 50 SMA and lookbacks
-                        const klineRes = await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=70`);
+                        // Request 40 candles to safely compute ATR 14 and SMA 20
+                        const klineRes = await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=40`);
                         const klines = await klineRes.json();
 
-                        if (!klines || klines.length < 60) return null;
+                        if (!klines || klines.length < 30) return null;
 
                         const opens = klines.map(k => parseFloat(k[1]));
+                        const highs = klines.map(k => parseFloat(k[2]));
+                        const lows = klines.map(k => parseFloat(k[3]));
                         const closes = klines.map(k => parseFloat(k[4]));
                         const volumes = klines.map(k => parseFloat(k[5]));
 
                         const currIdx = klines.length - 1;
                         const prevIdx = currIdx - 1;
                         const prevPrevIdx = currIdx - 2;
-                        const prevPrevPrevIdx = currIdx - 3;
 
                         const currOpen = opens[currIdx];
                         const currClose = closes[currIdx];
+                        const currHigh = highs[currIdx];
+                        const currLow = lows[currIdx];
+                        const currVol = volumes[currIdx];
+
                         const prevOpen = opens[prevIdx];
                         const prevClose = closes[prevIdx];
-
-                        const currVol = volumes[currIdx];
+                        const prevHigh = highs[prevIdx];
+                        const prevLow = lows[prevIdx];
                         const prevVol = volumes[prevIdx];
 
-                        const isGreen = currClose >= currOpen;
-                        const isRed = !isGreen;
+                        const prevPrevOpen = opens[prevPrevIdx];
+                        const prevPrevClose = closes[prevPrevIdx];
+                        const prevPrevHigh = highs[prevPrevIdx];
+                        const prevPrevLow = lows[prevPrevIdx];
+                        const prevPrevVol = volumes[prevPrevIdx];
 
-                        // --- Condition (1): Current body length > 2 * previous body length ---
-                        const currBody = Math.abs(currClose - currOpen);
-                        const prevBody = Math.abs(prevClose - prevOpen);
-                        if (prevBody === 0) return null;
-                        if (!(currBody > prevBody * 2)) return null;
+                        // --- Condition (1): Color of current candle and prev candle should be different ---
+                        const currIsGreen = currClose >= currOpen;
+                        const prevIsGreen = prevClose >= prevOpen;
+                        if (currIsGreen === prevIsGreen) return null;
 
-                        // --- Condition (2): Absolute value of one of the last 4 candles close chg >= 1% ---
-                        let hasValidChg = false;
-                        for (let offset = 0; offset <= 3; offset++) {
-                            const idx = currIdx - offset;
-                            const cClose = closes[idx];
-                            const cOpen = opens[idx];
-                            const cPrevClose = closes[idx - 1];
-                            const chgPct = ((cClose - cPrevClose) / cPrevClose) * 100;
-                            if (Math.abs(chgPct) >= 1.0) {
-                                hasValidChg = true;
-                                break;
+                        // --- Condition (2): Abs value of Close chg percent of both current and prev > 2% ---
+                        const currCloseChgPct = ((currClose - prevClose) / prevClose) * 100;
+                        const prevCloseChgPct = ((prevClose - prevPrevClose) / prevPrevClose) * 100;
+                        if (Math.abs(currCloseChgPct) <= 2.0 || Math.abs(prevCloseChgPct) <= 2.0) return null;
+
+                        // --- Condition (3): Both current and prev candle length >= 1.5 * ATR 14 ---
+                        const atrArr = calculateATR(highs, lows, closes, 14);
+                        const currATR = atrArr[currIdx];
+                        const prevATR = atrArr[prevIdx];
+                        if (currATR === null || prevATR === null) return null;
+
+                        const currLength = currHigh - currLow;
+                        const prevLength = prevHigh - prevLow;
+                        if (!(currLength >= 1.5 * currATR && prevLength >= 1.5 * prevATR)) return null;
+
+                        // --- Condition (4): Prev candle length > Prev prev candle length ---
+                        const prevPrevLength = prevPrevHigh - prevPrevLow;
+                        if (!(prevLength > prevPrevLength)) return null;
+
+                        // --- Condition (5): Prev candle volume > Prev prev candle volume ---
+                        if (!(prevVol > prevPrevVol)) return null;
+
+                        // Calculate Dashboard Indicators
+                        const prevPrevVolVal = volumes[currIdx - 3]; // For prev vol change calculation vs its prior
+                        const prevVolChgPct = prevPrevVol > 0 ? ((prevVol - prevPrevVol) / prevPrevVol) * 100 : 0;
+                        const currVolChgPct = prevVol > 0 ? ((currVol - prevVol) / prevVol) * 100 : 0;
+
+                        // SMA 20 condition check
+                        const sma20Arr = calculateSMA(closes, 20);
+                        const currSMA20 = sma20Arr[currIdx];
+                        let smaCheck = false;
+
+                        if (currSMA20 !== null) {
+                            if (!currIsGreen && currClose < currSMA20) {
+                                smaCheck = true; // Red candle and close below SMA 20
+                            } else if (currIsGreen && currClose > currSMA20) {
+                                smaCheck = true; // Green candle and close above SMA 20
                             }
                         }
-                        if (!hasValidChg) return null;
-
-                        // --- Condition (3): Lookback between Prev-Prev & Prev-Prev-Prev biggest candle ---
-                        const ppClose = closes[prevPrevIdx];
-                        const ppPrevClose = closes[prevPrevIdx - 1];
-                        const ppChg = ((ppClose - ppPrevClose) / ppPrevClose) * 100;
-
-                        const pppClose = closes[prevPrevPrevIdx];
-                        const pppPrevClose = closes[prevPrevPrevIdx - 1];
-                        const pppChg = ((pppClose - pppPrevClose) / pppPrevClose) * 100;
-
-                        if (isGreen) {
-                            // Find biggest candle between pp and ppp (most negative change)
-                            const targetChg = Math.min(ppChg, pppChg);
-                            if (!(targetChg <= -0.7)) return null;
-                        } else {
-                            // Find biggest candle between pp and ppp (most positive change)
-                            const targetChg = Math.max(ppChg, pppChg);
-                            if (!(targetChg >= 0.7)) return null;
-                        }
-
-                        // Calculate SMAs
-                        const sma8 = calculateSMA(closes, 8);
-                        const sma20 = calculateSMA(closes, 20);
-                        const sma50 = calculateSMA(closes, 50);
-
-                        if (sma8[currIdx] === null || sma50[currIdx] === null) return null;
-
-                        // --- Condition (4): 8 SMA of previous candle direction ---
-                        const prevSMA8 = sma8[prevIdx];
-                        const prevPrevSMA8 = sma8[prevIdx - 1];
-                        if (prevSMA8 === null || prevPrevSMA8 === null) return null;
-
-                        const sma8Decreasing = prevSMA8 < prevPrevSMA8;
-                        const sma8Increasing = prevSMA8 > prevPrevSMA8;
-
-                        if (isGreen && !sma8Decreasing) return null;
-                        if (isRed && !sma8Increasing) return null;
-
-                        // --- Condition (5): 20 SMA or 50 SMA trend over last 5 candles ---
-                        const trendDir = isGreen ? 'descending' : 'ascending';
-                        const sma20Valid = checkTrend(sma20, currIdx, trendDir);
-                        const sma50Valid = checkTrend(sma50, currIdx, trendDir);
-                        if (!(sma20Valid || sma50Valid)) return null;
-
-                        // Dashboard metrics
-                        const priceChgPct = ((currClose - prevClose) / prevClose) * 100;
-                        const volChgPct = ((currVol - prevVol) / prevVol) * 100;
-                        const bodyRatio = currBody / prevBody;
-
-                        // Strength of prev candle 8 SMA line (percentage slope between prev-prev and prev)
-                        const sma8Strength = ((prevSMA8 - prevPrevSMA8) / prevPrevSMA8) * 100;
 
                         return {
                             symbol: symbol,
-                            priceChg: priceChgPct,
-                            volChg: volChgPct,
-                            bodyRatio: bodyRatio,
-                            smaStrength: sma8Strength
+                            currPriceChg: currCloseChgPct,
+                            currVolChg: currVolChgPct,
+                            prevVolChg: prevVolChgPct,
+                            smaCheck: smaCheck
                         };
 
                     } catch (err) {
@@ -430,18 +439,24 @@
 
         let html = '';
         matchedResults.forEach(item => {
-            const priceClass = item.priceChg >= 0 ? 'text-green' : 'text-red';
-            const priceSign = item.priceChg >= 0 ? '+' : '';
-            const strengthClass = item.smaStrength >= 0 ? 'text-green' : 'text-red';
-            const strengthSign = item.smaStrength >= 0 ? '+' : '';
+            const priceClass = item.currPriceChg >= 0 ? 'text-green' : 'text-red';
+            const priceSign = item.currPriceChg >= 0 ? '+' : '';
+            const currVolClass = item.currVolChg >= 0 ? 'text-green' : 'text-red';
+            const currVolSign = item.currVolChg >= 0 ? '+' : '';
+            const prevVolClass = item.prevVolChg >= 0 ? 'text-green' : 'text-red';
+            const prevVolSign = item.prevVolChg >= 0 ? '+' : '';
+
+            const smaBadge = item.smaCheck 
+                ? '<span class="badge-true">TRUE</span>' 
+                : '<span class="badge-false">FALSE</span>';
 
             html += `
                 <tr>
                     <td><strong>${item.symbol}</strong></td>
-                    <td class="${priceClass}">${priceSign}${item.priceChg.toFixed(2)}%</td>
-                    <td class="text-green">+${item.volChg.toFixed(1)}%</td>
-                    <td>${item.bodyRatio.toFixed(2)}x</td>
-                    <td class="${strengthClass}">${strengthSign}${item.smaStrength.toFixed(3)}%</td>
+                    <td class="${priceClass}">${priceSign}${item.currPriceChg.toFixed(2)}%</td>
+                    <td class="${currVolClass}">${currVolSign}${item.currVolChg.toFixed(1)}%</td>
+                    <td class="${prevVolClass}">${prevVolSign}${item.prevVolChg.toFixed(1)}%</td>
+                    <td>${smaBadge}</td>
                 </tr>
             `;
         });
@@ -462,6 +477,12 @@
         matchedResults.sort((a, b) => {
             let valA = a[column];
             let valB = b[column];
+
+            if (typeof valA === 'boolean') {
+                valA = valA ? 1 : 0;
+                valB = valB ? 1 : 0;
+            }
+
             return currentSortAsc ? valA - valB : valB - valA;
         });
 
